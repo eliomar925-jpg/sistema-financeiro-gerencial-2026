@@ -1,0 +1,46 @@
+{
+  "version": "2026.09",
+  "periodo": "2026-01-01/2026-06-30",
+  "root": "C:\\Users\\Eliomarssa\\Controladoria",
+  "master": "ROTINA_CONCILIACAO_FINANCEIRA_2026_MASTER_REV01.xlsx",
+  "folders": {
+    "year": "01_2026",
+    "semesters": [
+      "01_SEMESTRE",
+      "02_SEMESTRE"
+    ],
+    "subfolders": [
+      "01_EXTRATOS",
+      "02_COMPROVANTES",
+      "03_CARTAO_DE_CREDITO",
+      "04_MUTUOS"
+    ],
+    "controle": "03_CONTROLE"
+  },
+  "rules": {
+    "forbidden_folders": [
+      "00_ENTRADA"
+    ],
+    "dre_exclude": [
+      "Mutuo",
+      "Aporte",
+      "Transferencia",
+      "Resultado financeiro",
+      "Despesa financeira",
+      "Devolucao/Estorno"
+    ],
+    "cash_date": "DATQUITACAO",
+    "show_competence": "data_apresentacao",
+    "intercompany": [
+      "SOFA DA SOGRA",
+      "SALVADOR PRODUCOES"
+    ],
+    "match": [
+      "centro",
+      "evento_show",
+      "contratante_descricao",
+      "valor_composicao",
+      "data"
+    ]
+  }
+}
