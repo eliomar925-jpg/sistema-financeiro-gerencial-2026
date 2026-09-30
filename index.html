@@ -95,6 +95,7 @@ async function preflightFiles(){
 baseFiles.onchange=preflightFiles;
 const openDB=()=>new Promise((res,rej)=>{const q=indexedDB.open('FinanceiroGerencial2026',1);q.onupgradeneeded=()=>{const db=q.result;if(!db.objectStoreNames.contains('bases'))db.createObjectStore('bases',{keyPath:'id'})};q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});
 const dbGet=id=>openDB().then(db=>new Promise((res,rej)=>{const q=db.transaction('bases','readonly').objectStore('bases').get(id);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)}));
+const dbAll=()=>openDB().then(db=>new Promise((res,rej)=>{const q=db.transaction('bases','readonly').objectStore('bases').getAll();q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)}));
 async function restoreLastModel(){try{const saved=await dbGet('__modelo__');if(saved&&saved.model){applyModel(saved.model);const d=new Date(saved.importedAt);document.querySelector('.badge').textContent='REV02 · ÚLTIMA BASE';const last=document.querySelector('.filters .pill');if(last)last.textContent='Atualizado em '+d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}}catch(e){console.warn('Sem base anterior para restaurar')}}
 const N=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
 const V=v=>{if(typeof v==='number')return v;let s=String(v??'').replace(/R\$/gi,'').replace(/\s/g,'');if(s.includes(',')&&s.includes('.'))s=s.replace(/\./g,'').replace(',','.');else if(s.includes(','))s=s.replace(',','.');return Number(s)||0};
@@ -168,12 +169,16 @@ async function readValidatedFile(f){
  }
  return{wb,accepted,checks};
 }
-processImport.onclick=async()=>{processImport.disabled=true;importStatus.textContent='Validando os arquivos antes de atualizar o MVP...';try{
- const db=await openDB(),tx=db.transaction('bases','readwrite'),store=tx.objectStore('bases');let total=0,all=[],report=[],invalid=0;
- for(const p of preflight){const f=p.file;if(!p.ok){invalid++;report.push(f.name+': nenhuma aba compatível');continue}const r=await readValidatedFile(f),validChecks=r.checks.filter(x=>x.ok);all.push(...r.accepted);total+=r.accepted.length;report.push(f.name+': '+validChecks.map(x=>x.sheet+' ('+x.rows+' linhas)').join(', '));store.put({id:f.name,name:f.name,type:p.type,size:f.size,lastModified:f.lastModified,importedAt:new Date().toISOString(),sheets:r.checks,rows:r.accepted.length})}
- if(!all.length)throw new Error('Nenhuma base compatível foi encontrada. A atualização anterior foi preservada.');
- const model=buildModel(all);model.audit.files=selectedBases.length;model.audit.invalidFiles=invalid;model.audit.validation=report;store.put({id:'__modelo__',name:'Modelo recalculado',type:'resultado',importedAt:new Date().toISOString(),model});await new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});localStorage.setItem('financeiro2026_lastImport',new Date().toISOString());applyModel(model);
- importStatus.innerHTML='<span class="ok">MVP validado e recalculado.</span> '+total.toLocaleString('pt-BR')+' linhas aceitas.'+(invalid?' <span class="warn">'+invalid+' arquivo(s) rejeitado(s) sem alterar a última base válida.</span>':'');
+processImport.onclick=async()=>{processImport.disabled=true;importStatus.textContent='Atualizando somente as bases selecionadas...';try{
+ const db=await openDB();let previous=await dbAll(),catalog=new Map(previous.filter(x=>x.id!=='__modelo__'&&x.type&&x.data).map(x=>[x.type,x]));
+ let invalid=0,report=[],updated=0;
+ for(const p of preflight){const f=p.file;if(!p.ok){invalid++;report.push(f.name+': rejeitado');continue}const r=await readValidatedFile(f);catalog.set(p.type,{id:'base:'+p.type,name:f.name,type:p.type,size:f.size,lastModified:f.lastModified,importedAt:new Date().toISOString(),sheets:r.checks,rows:r.accepted.length,data:r.accepted});report.push(f.name+': atualizado');updated++}
+ if(!updated)throw new Error('Nenhuma base válida foi atualizada. O fechamento anterior foi preservado.');
+ const all=[...catalog.values()].flatMap(x=>x.data||[]);if(!all.length)throw new Error('Não há conjunto de bases suficiente para recalcular.');
+ const model=buildModel(all);model.audit.files=catalog.size;model.audit.invalidFiles=invalid;model.audit.validation=report;model.audit.incremental=true;model.audit.catalog=[...catalog.values()].map(x=>({type:x.type,name:x.name,rows:x.rows,importedAt:x.importedAt}));
+ const tx=db.transaction('bases','readwrite'),store=tx.objectStore('bases');for(const x of catalog.values())store.put(x);store.put({id:'__modelo__',name:'Modelo recalculado',type:'resultado',importedAt:new Date().toISOString(),model});await new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});
+ localStorage.setItem('financeiro2026_lastImport',new Date().toISOString());applyModel(model);
+ const kept=catalog.size-updated;importStatus.innerHTML='<span class="ok">Atualização incremental concluída.</span> '+updated+' base(s) substituída(s)'+(kept?' e '+kept+' base(s) anteriores mantidas.':'.')+(invalid?' <span class="warn">'+invalid+' arquivo(s) rejeitado(s).</span>':'');
 }catch(e){importStatus.innerHTML='<span class="warn">Atualização não realizada:</span> '+e.message}finally{processImport.disabled=false}};
 
 
