@@ -112,11 +112,21 @@ function buildModel(rows){
   if(fr==='Não classificado'){m.pend++;m.pendingRows.push({motivo:'Sem frente / centro',valor:val,arquivo:r.__arquivo})}
  }
  for(const [k,q] of seen)if(q>1){m.pend+=q-1;m.pendingRows.push({motivo:'Possível duplicidade',valor:Number(k.split('|')[1])||0,arquivo:'Bases carregadas'})}
- // reconciliation: conservative exact value matching between flow receipts and non-flow receipts
+ // reconciliation: event/front aware; value alone never confirms
  const flows=rows.filter(r=>(N(r.__aba).includes('LANCAMENTO')||N(r.__arquivo).includes('FLUXO DE CAIXA'))&&rowType(r)==='rec'&&!isNoOp(r));
  const recs=rows.filter(r=>!(N(r.__aba).includes('LANCAMENTO')||N(r.__arquivo).includes('FLUXO DE CAIXA'))&&rowType(r)==='rec'&&!isNoOp(r));
- const buckets=new Map();for(const r of recs){const v=rowVal(r).toFixed(2);if(!buckets.has(v))buckets.set(v,[]);buckets.get(v).push(r)}
- for(const r of flows){const b=buckets.get(rowVal(r).toFixed(2))||[];const fr=rowFront(r);const exact=b.find(x=>rowFront(x)===fr);if(exact)m.recon.matched++;else if(b.length)m.recon.possible++;else m.recon.unmatched++}
+ m.recon.details=[];m.recon.composed=0;
+ const ev=r=>N(F(r,'EVENTO','CENTRO DE CUSTO','DESCRIÇÃO','DESCRICAO')), party=r=>N(F(r,'RAZAOSOCIAL','RESPTITULO','HISTORICOCOMP'));
+ const sameCtx=(a,b)=>{const ea=ev(a),eb=ev(b),pa=party(a),pb=party(b);return rowFront(a)===rowFront(b)&&((ea&&eb&&(ea.includes(eb)||eb.includes(ea)))||(pa&&pb&&(pa.includes(pb)||pb.includes(pa))))};
+ const used=new Set();
+ for(const r of flows){
+  const val=rowVal(r), exact=recs.map((x,i)=>({x,i})).find(z=>!used.has(z.i)&&sameCtx(r,z.x)&&Math.abs(rowVal(z.x)-val)<.01);
+  if(exact){used.add(exact.i);m.recon.matched++;m.recon.details.push(['CONCILIADO',ev(r)||rowFront(r),val,'valor + contexto']);continue}
+  const pool=recs.map((x,i)=>({x,i})).filter(z=>!used.has(z.i)&&sameCtx(r,z.x)).slice(0,10);let pair=null;
+  for(let x=0;x<pool.length&&!pair;x++)for(let y=x+1;y<pool.length;y++)if(Math.abs(rowVal(pool[x].x)+rowVal(pool[y].x)-val)<.01){pair=[pool[x],pool[y]];break}
+  if(pair){pair.forEach(z=>used.add(z.i));m.recon.composed++;m.recon.details.push(['COMPOSIÇÃO',ev(r)||rowFront(r),val,'2 títulos do mesmo contexto']);continue}
+  if(pool.length){m.recon.possible++;m.recon.details.push(['POSSÍVEL MATCH',ev(r)||rowFront(r),val,'contexto identificado; valor não fecha'])}else{m.recon.unmatched++;m.recon.details.push(['SEM CONTRAPARTE',ev(r)||rowFront(r),val,'sem vínculo seguro']);m.pend++;m.pendingRows.push({motivo:'Divergência de conciliação',valor:val,arquivo:r.__arquivo})}
+ }
  return m
 }
 function applyModel(m){const conv=x=>({r:compact(x.r),d:'−'+compact(x.d).replace(/^−/,''),res:compact(x.r-x.d),m:x.r?((x.r-x.d)/x.r*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'0%',titulo:'DRE recalculada pelas bases carregadas',rows:Object.entries(x.fronts).filter(([k])=>k!=='Não classificado').map(([k,v])=>[k,compact(v.r),compact(v.d),compact(v.r-v.d)])});dados.salvador=conv(m.salvador);dados.sofa=conv(m.sofa);const z={r:m.salvador.r+m.sofa.r,d:m.salvador.d+m.sofa.d,fronts:{'Salvador Produções':{r:m.salvador.r,d:m.salvador.d},'Sofá da Sogra':{r:m.sofa.r,d:m.sofa.d}}};dados.consolidado=conv(z);paint();document.querySelector('#frentes tbody').innerHTML=Object.entries(m.salvador.fronts).filter(([k])=>k!=='Não classificado').map(([k,v])=>'<tr class="clickable front-link" data-front="'+k+'"><td><b>'+k+'</b></td><td>'+compact(v.r)+'</td><td>'+compact(v.d)+'</td><td class="'+(v.r-v.d<0?'neg':'pos')+'">'+compact(v.r-v.d)+'</td></tr>').join('');document.querySelectorAll('.front-link').forEach(tr=>tr.onclick=()=>{document.getElementById('entity').value='salvador';paint();document.querySelectorAll('.nav button,.page').forEach(x=>x.classList.remove('on'));document.querySelector('[data-p="dre"]').classList.add('on');document.getElementById('dre').classList.add('on');document.getElementById('ttl').textContent='DRE';openDetail(tr.dataset.front);window.scrollTo({top:0,behavior:'smooth'})});document.querySelector('.badge').textContent='REV02 · RECALCULADO';
