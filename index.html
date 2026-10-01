@@ -26,6 +26,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
   <div class="actions">
     <button class="btn" id="openDocs">Carregar espelhos</button>
     <button class="btn" id="openBanks">Carregar extratos</button>
+    <button class="btn" id="openClear">Limpar arquivos</button>
     <button class="btn primary" id="saveWork">Salvar trabalho</button>
   </div>
 </header>
@@ -99,14 +100,30 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 </div>
 
 <div class="modal" id="docsModal"><div class="modalBox">
-  <div class="modalHead"><div><h2>Carregar espelhos do WhatsApp</h2><div class="muted">Uma imagem pode conter vários pagamentos. O OCR lê valores e datas e cria itens separados para conferência antes da conciliação.</div></div><button class="close" data-close="docsModal">×</button></div>
+  <div class="modalHead"><div><h2>Adicionar espelhos do WhatsApp</h2><div class="muted">Você pode adicionar novos arquivos a qualquer momento. Os já carregados são preservados e duplicados exatos são ignorados. Uma imagem pode conter vários pagamentos.</div></div><button class="close" data-close="docsModal">×</button></div>
   <div class="drop"><input id="docFiles" type="file" accept=".zip,.jpg,.jpeg,.png,.webp,.pdf" multiple></div>
   <div id="docFileList"></div>
   <div class="toolbar"><button class="smallBtn primary" id="processDocs">Adicionar à fila</button></div>
 </div></div>
 
+<div class="modal" id="clearModal"><div class="modalBox">
+  <div class="modalHead"><div><h2>Limpar arquivos do trabalho</h2><div class="muted">Escolha exatamente o que deseja apagar. Esta ação não afeta os arquivos originais no seu computador.</div></div><button class="close" data-close="clearModal">×</button></div>
+  <div class="panel" style="margin-top:14px">
+    <h2>Espelhos / WhatsApp</h2><p class="muted">Remove os arquivos e pagamentos derivados das imagens/PDFs. Os extratos bancários são mantidos.</p>
+    <button class="smallBtn" id="clearDocsBtn">Limpar espelhos</button>
+  </div>
+  <div class="panel">
+    <h2>Extratos bancários</h2><p class="muted">Remove apenas os lançamentos bancários carregados. Os espelhos são mantidos.</p>
+    <button class="smallBtn" id="clearBanksBtn">Limpar extratos</button>
+  </div>
+  <div class="panel">
+    <h2>Recomeçar setembro</h2><p class="muted">Remove espelhos, pagamentos identificados, extratos e vínculos de conciliação.</p>
+    <button class="smallBtn" id="clearAllBtn">Limpar tudo</button>
+  </div>
+</div></div>
+
 <div class="modal" id="banksModal"><div class="modalBox">
-  <div class="modalHead"><div><h2>Carregar extratos bancários</h2><div class="muted">Formato esperado: Data, Lançamento, Ag/origem, Razão Social, CPF/CNPJ, Valor (R$), Saldo (R$).</div></div><button class="close" data-close="banksModal">×</button></div>
+  <div class="modalHead"><div><h2>Adicionar extratos bancários</h2><div class="muted">Você pode complementar depois com outros extratos de setembro. Os lançamentos já carregados permanecem no trabalho.</div></div><button class="close" data-close="banksModal">×</button></div>
   <div class="drop"><input id="bankFiles" type="file" accept=".xlsx,.xls" multiple></div>
   <div id="bankFileList"></div>
   <div class="toolbar"><button class="smallBtn primary" id="processBanks">Adicionar extratos</button></div>
@@ -127,11 +144,13 @@ let mediaDbPromise=null;
 function mediaDb(){if(mediaDbPromise)return mediaDbPromise;mediaDbPromise=new Promise((resolve,reject)=>{const q=indexedDB.open('ConciliacaoDiariaPagamentos',1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains('media'))q.result.createObjectStore('media')};q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)});return mediaDbPromise}
 async function putMedia(id,blob){media.set(id,blob);try{const db=await mediaDb();await new Promise((resolve,reject)=>{const tx=db.transaction('media','readwrite');tx.objectStore('media').put(blob,id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}catch(e){}}
 async function getMedia(id){if(media.has(id))return media.get(id);try{const db=await mediaDb();const blob=await new Promise((resolve,reject)=>{const tx=db.transaction('media','readonly'),q=tx.objectStore('media').get(id);q.onsuccess=()=>resolve(q.result||null);q.onerror=()=>reject(q.error)});if(blob)media.set(id,blob);return blob}catch(e){return null}}
+async function deleteMediaIds(ids){for(const id of ids)media.delete(id);try{const db=await mediaDb();await new Promise((resolve,reject)=>{const tx=db.transaction('media','readwrite'),store=tx.objectStore('media');ids.forEach(id=>store.delete(id));tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}catch(e){}}
+async function clearAllMedia(){media.clear();try{const db=await mediaDb();await new Promise((resolve,reject)=>{const tx=db.transaction('media','readwrite');tx.objectStore('media').clear();tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}catch(e){}}
 function save(){localStorage.setItem('conciliacao_diaria_v2',JSON.stringify({docs:state.docs,banks:state.banks}))}
 function load(){try{const x=JSON.parse(localStorage.getItem('conciliacao_diaria_v2')||localStorage.getItem('conciliacao_diaria_v1')||'{}');state.docs=x.docs||[];state.banks=x.banks||[]}catch(e){}}
 function modal(id,on=true){$(id).classList.toggle('on',on)}
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>modal(b.dataset.close,false));
-$('openDocs').onclick=()=>modal('docsModal');$('openBanks').onclick=()=>modal('banksModal');$('saveWork').onclick=()=>{save();alert('Trabalho salvo neste navegador.')};
+$('openDocs').onclick=()=>modal('docsModal');$('openBanks').onclick=()=>modal('banksModal');$('openClear').onclick=()=>modal('clearModal');$('saveWork').onclick=()=>{save();alert('Trabalho salvo neste navegador.')};
 $('docFiles').onchange=()=>{$('docFileList').innerHTML=[...$('docFiles').files].map(f=>'<div class="fileLine">'+f.name+'</div>').join('')};
 $('bankFiles').onchange=()=>{$('bankFileList').innerHTML=[...$('bankFiles').files].map(f=>'<div class="fileLine">'+f.name+'</div>').join('')};
 
@@ -163,7 +182,7 @@ function parseBank(wb,file){
  const rows=XLSX.utils.sheet_to_json(ws,{range:hr,defval:null,raw:true});for(const r of rows){const lanc=r['Lançamento']??r['LANCAMENTO'];const val=Number(r['Valor (R$)']??r['VALOR']??0);if(!lanc||!val||norm(lanc).includes('SALDO ANTERIOR')||norm(lanc).includes('SALDO APLIC'))continue;out.push({id:uid(),file,empresa,agencia,conta,date:isoDate(r['Data']??r['DATA']),lanc:String(lanc),razao:String(r['Razão Social']??r['RAZAO SOCIAL']??''),doc:String(r['CPF/CNPJ']??''),value:val,matchedDoc:null})}}
  return out
 }
-$('processBanks').onclick=async()=>{let accepted=0,skipped=0;for(const f of [...$('bankFiles').files]){const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const rows=parseBank(wb,f.name);for(const r of rows){if(r.date&&r.date.slice(0,7)==='2026-09'){state.banks.push(r);accepted++}else skipped++}}save();render();modal('banksModal',false);$('bankFiles').value='';$('bankFileList').innerHTML='';alert(accepted+' lançamento(s) bancário(s) de setembro adicionados.'+(skipped?' '+skipped+' fora do período ignorados.':''))};
+$('processBanks').onclick=async()=>{let accepted=0,skipped=0,duplicates=0;for(const f of [...$('bankFiles').files]){const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const rows=parseBank(wb,f.name);for(const r of rows){if(!r.date||r.date.slice(0,7)!=='2026-09'){skipped++;continue}const dup=state.banks.some(b=>b.date===r.date&&b.agencia===r.agencia&&b.conta===r.conta&&b.value===r.value&&b.razao===r.razao&&b.lanc===r.lanc);if(dup){duplicates++;continue}state.banks.push(r);accepted++}}save();render();modal('banksModal',false);$('bankFiles').value='';$('bankFileList').innerHTML='';alert(accepted+' lançamento(s) novo(s) adicionados.'+(duplicates?' '+duplicates+' duplicado(s) ignorado(s).':'')+(skipped?' '+skipped+' fora de setembro ignorado(s).':''))};
 
 function brNumber(s){s=String(s||'').replace(/R\$/gi,'').replace(/\s/g,'').replace(/\./g,'').replace(',','.').replace(/[^0-9.-]/g,'');return Number(s)||0}
 function parseOcr(text,doc){
@@ -211,6 +230,9 @@ $('saveDocEdit').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDo
 $('reconcileBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc),b=state.banks.find(x=>x.id===state.selectedBank);if(!d||!b)return alert('Selecione um pagamento e um lançamento bancário.');if(b.matchedDoc&&b.matchedDoc!==d.id)return alert('Este lançamento bancário já está conciliado com outro pagamento.');if(!d.value)return alert('Preencha o valor do espelho antes de conciliar.');if(Math.abs(Math.abs(b.value)-Math.abs(d.value))>.009)return alert('Os valores não coincidem. Use "Marcar divergência" ou ajuste os dados do espelho.');d.status='CONCILIADO';d.bankId=b.id;b.matchedDoc=d.id;d.obs=d.obs||'Conciliação manual confirmada';save();render()};
 $('divergenceBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');d.status='DIVERGÊNCIA';d.obs=$('editObs').value.trim()||'Revisar valor/data/beneficiário';save();render()};
 $('undoBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return;const b=state.banks.find(x=>x.id===d.bankId);if(b)b.matchedDoc=null;d.bankId=null;d.status='PENDENTE';save();render()};
+$('clearDocsBtn').onclick=async()=>{if(!confirm('Limpar todos os espelhos e pagamentos identificados de setembro? Os extratos serão mantidos.'))return;const ids=[...new Set(state.docs.map(d=>d.sourceId||d.id))];await deleteMediaIds(ids);state.docs=[];state.selectedDoc=null;state.banks.forEach(b=>b.matchedDoc=null);save();render();modal('clearModal',false);$('docPreview').innerHTML='<span class="muted">A prévia do espelho aparece aqui.</span>';alert('Espelhos removidos. Os extratos foram preservados.');};
+$('clearBanksBtn').onclick=()=>{if(!confirm('Limpar todos os extratos bancários de setembro? Os espelhos serão mantidos.'))return;state.banks=[];state.selectedBank=null;state.docs.forEach(d=>{d.bankId=null;if(d.status==='CONCILIADO')d.status='PENDENTE'});save();render();modal('clearModal',false);alert('Extratos removidos. Os espelhos foram preservados.');};
+$('clearAllBtn').onclick=async()=>{if(!confirm('Limpar TODO o trabalho de setembro e recomeçar?'))return;await clearAllMedia();state.docs=[];state.banks=[];state.selectedDoc=null;state.selectedBank=null;localStorage.removeItem('conciliacao_diaria_v2');save();render();modal('clearModal',false);$('docPreview').innerHTML='<span class="muted">A prévia do espelho aparece aqui.</span>';alert('Trabalho de setembro limpo. Agora você pode carregar novamente os arquivos desejados.');};
 ['filterDate','filterGroup','filterStatus'].forEach(id=>$(id).onchange=render);$('clearFilters').onclick=()=>{$('filterDate').value='';$('filterGroup').value='';$('filterStatus').value='';render()};$('todayBtn').onclick=()=>{const d=new Date().toISOString().slice(0,10);$('filterDate').value=d.startsWith('2026-09')?d:'2026-09-30';render()};
 load();render();
 </script>
