@@ -10,7 +10,7 @@
 .app{min-height:100vh}.top{background:var(--navy);color:#fff;padding:20px 28px;display:flex;justify-content:space-between;gap:16px;align-items:center}.brand h1{margin:0;font-size:24px}.brand p{margin:5px 0 0;color:#b6c4d1}.actions{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #ffffff44;background:#ffffff0f;color:#fff;padding:9px 12px;border-radius:7px;cursor:pointer}.btn.primary{background:#fff;color:var(--navy);font-weight:800}.main{padding:22px 28px}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}.filters input,.filters select{background:#fff;border:1px solid var(--line);padding:9px 10px;border-radius:7px}
 .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card,.panel{background:var(--card);border:1px solid var(--line);border-radius:9px;box-shadow:0 4px 16px #00000008}.card{padding:16px}.lab{font-size:10px;letter-spacing:.08em;color:var(--muted);font-weight:900}.val{font-size:26px;font-weight:900;margin-top:6px}.green{color:var(--green)}.red{color:var(--red)}.amber{color:var(--amber)}.panel{padding:18px;margin-top:14px}.panel h2{margin:0 0 4px}.muted{color:var(--muted)}
 .workspace{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.pane{background:#fff;border:1px solid var(--line);border-radius:9px;overflow:hidden}.paneHead{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px}.paneBody{max-height:560px;overflow:auto}
-table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{position:sticky;top:0;background:#f8fafc;font-size:11px;z-index:2}.row{cursor:pointer}.row:hover{background:#f7fafc}.row.sel{outline:2px solid var(--blue);outline-offset:-2px;background:#eef7ff}.pill{display:inline-block;padding:4px 7px;border-radius:99px;background:#edf2f6;font-size:10px;font-weight:800}.pill.ok{background:#e5f5f0;color:var(--green)}.pill.warn{background:#fff4da;color:#8a5a00}.pill.err{background:#fde9eb;color:var(--red)}
+table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{position:sticky;top:0;background:#f8fafc;font-size:11px;z-index:2}.row{cursor:pointer}.row:hover{background:#f7fafc}.row.sel{outline:2px solid var(--blue);outline-offset:-2px;background:#eef7ff}.row.suggest{background:#fff9e9}.score{font-size:10px;font-weight:900;color:#8a5a00}.preview{margin-top:12px;border:1px solid var(--line);border-radius:8px;background:#f8fafc;min-height:90px;display:flex;align-items:center;justify-content:center;overflow:hidden}.preview img{max-width:100%;max-height:320px;display:block}.ocrText{white-space:pre-wrap;font:11px ui-monospace,Consolas,monospace;max-height:140px;overflow:auto;background:#f8fafc;border:1px solid var(--line);padding:8px;border-radius:6px;margin-top:8px}.pill{display:inline-block;padding:4px 7px;border-radius:99px;background:#edf2f6;font-size:10px;font-weight:800}.pill.ok{background:#e5f5f0;color:var(--green)}.pill.warn{background:#fff4da;color:#8a5a00}.pill.err{background:#fde9eb;color:var(--red)}
 .detailGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.detailGrid label{font-size:11px;color:var(--muted);display:block}.detailGrid input{width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;margin-top:4px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.smallBtn{border:1px solid var(--line);background:#fff;padding:7px 9px;border-radius:6px;cursor:pointer}.smallBtn.primary{background:var(--navy);color:#fff;border-color:var(--navy)}
 .modal{position:fixed;inset:0;background:#08121db5;display:none;align-items:center;justify-content:center;padding:20px;z-index:20}.modal.on{display:flex}.modalBox{width:min(760px,100%);max-height:88vh;overflow:auto;background:#fff;border-radius:10px;padding:20px}.modalHead{display:flex;justify-content:space-between;gap:12px;align-items:center}.close{border:0;background:transparent;font-size:22px;cursor:pointer}.drop{border:2px dashed var(--line);border-radius:8px;padding:24px;text-align:center;margin:14px 0}.fileLine{padding:8px 0;border-bottom:1px solid var(--line)}.foot{color:var(--muted);font-size:11px;margin-top:16px}
 @media(max-width:980px){.workspace{grid-template-columns:1fr}.grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){.main{padding:14px}.top{padding:16px}.grid{grid-template-columns:1fr}.detailGrid{grid-template-columns:1fr}}
@@ -62,7 +62,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <section class="pane">
       <div class="paneHead"><div><b>Extrato bancário</b><div class="muted" id="bankCount">0 lançamentos</div></div><span class="pill">BANCO</span></div>
       <div class="paneBody">
-        <table><thead><tr><th>Data</th><th>Conta</th><th>Favorecido / histórico</th><th>Valor</th></tr></thead><tbody id="bankBody"></tbody></table>
+        <table><thead><tr><th>Data</th><th>Conta</th><th>Favorecido / histórico</th><th>Valor</th><th>Match</th></tr></thead><tbody id="bankBody"></tbody></table>
       </div>
     </section>
   </div>
@@ -70,6 +70,9 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
   <div class="panel">
     <h2>Conciliação selecionada</h2>
     <div id="selectionMsg" class="muted">Selecione um espelho e um lançamento bancário.</div>
+    <div class="preview" id="docPreview"><span class="muted">A prévia do espelho aparece aqui.</span></div>
+    <div class="toolbar"><button class="smallBtn" id="ocrBtn">Ler imagem (OCR)</button><span class="muted" id="ocrStatus"></span></div>
+    <div id="ocrRaw" class="ocrText" style="display:none"></div>
     <div class="detailGrid">
       <div><label>Beneficiário / favorecido<input id="editBenef" placeholder="Preencher quando necessário"></label></div>
       <div><label>Valor do espelho<input id="editValue" type="number" step="0.01" placeholder="0,00"></label></div>
@@ -94,7 +97,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 </div>
 
 <div class="modal" id="docsModal"><div class="modalBox">
-  <div class="modalHead"><div><h2>Carregar espelhos do WhatsApp</h2><div class="muted">Aceita ZIP, imagens e PDF. O sistema usa pasta/nome do arquivo para identificar grupo e data; beneficiário e valor podem ser preenchidos na revisão.</div></div><button class="close" data-close="docsModal">×</button></div>
+  <div class="modalHead"><div><h2>Carregar espelhos do WhatsApp</h2><div class="muted">Uma imagem pode conter vários pagamentos. O OCR lê valores e datas e cria itens separados para conferência antes da conciliação.</div></div><button class="close" data-close="docsModal">×</button></div>
   <div class="drop"><input id="docFiles" type="file" accept=".zip,.jpg,.jpeg,.png,.webp,.pdf" multiple></div>
   <div id="docFileList"></div>
   <div class="toolbar"><button class="smallBtn primary" id="processDocs">Adicionar à fila</button></div>
@@ -108,9 +111,9 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 </div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>\n<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const state={docs:[],banks:[],selectedDoc:null,selectedBank:null};
+const state={docs:[],banks:[],selectedDoc:null,selectedBank:null};const media=new Map();
 const $=id=>document.getElementById(id);
 const norm=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
 const money=n=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(n)||0);
@@ -118,8 +121,8 @@ const isoDate=d=>{if(!d)return'';if(d instanceof Date)return d.toISOString().sli
 const inferDate=name=>{const n=name.replace(/\D/g,'');let m=name.match(/(?:^|_)(\d{2})(\d{2})(\d{4})(?:_|\.|$)/);if(m)return m[3]+'-'+m[2]+'-'+m[1];m=name.match(/(?:^|_)(\d{2})(\d{2})(?:_|\.|$)/);if(m)return '2026-'+m[2]+'-'+m[1];return''};
 const inferGroup=path=>{const p=String(path).replace(/\\/g,'/').split('/').filter(Boolean);return p.length>1?p[p.length-2].replaceAll('_',' '):'SEM GRUPO'};
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-function save(){localStorage.setItem('conciliacao_diaria_v1',JSON.stringify(state))}
-function load(){try{const x=JSON.parse(localStorage.getItem('conciliacao_diaria_v1')||'{}');state.docs=x.docs||[];state.banks=x.banks||[]}catch(e){}}
+function save(){localStorage.setItem('conciliacao_diaria_v2',JSON.stringify({docs:state.docs,banks:state.banks}))}
+function load(){try{const x=JSON.parse(localStorage.getItem('conciliacao_diaria_v2')||localStorage.getItem('conciliacao_diaria_v1')||'{}');state.docs=x.docs||[];state.banks=x.banks||[]}catch(e){}}
 function modal(id,on=true){$(id).classList.toggle('on',on)}
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>modal(b.dataset.close,false));
 $('openDocs').onclick=()=>modal('docsModal');$('openBanks').onclick=()=>modal('banksModal');$('saveWork').onclick=()=>{save();alert('Trabalho salvo neste navegador.')};
@@ -127,7 +130,21 @@ $('docFiles').onchange=()=>{$('docFileList').innerHTML=[...$('docFiles').files].
 $('bankFiles').onchange=()=>{$('bankFileList').innerHTML=[...$('bankFiles').files].map(f=>'<div class="fileLine">'+f.name+'</div>').join('')};
 
 $('processDocs').onclick=async()=>{
- const files=[...$('docFiles').files];for(const f of files){const ext=f.name.split('.').pop().toLowerCase();if(ext==='zip'){const zip=await JSZip.loadAsync(await f.arrayBuffer());for(const [name,z] of Object.entries(zip.files)){if(z.dir)continue;const e=name.split('.').pop().toLowerCase();if(!['jpg','jpeg','png','webp','pdf'].includes(e))continue;state.docs.push({id:uid(),name:name.split('/').pop(),path:name,group:inferGroup(name),date:inferDate(name),benef:'',value:null,obs:'',status:'PENDENTE',bankId:null})}}else{state.docs.push({id:uid(),name:f.name,path:f.name,group:'SEM GRUPO',date:inferDate(f.name),benef:'',value:null,obs:'',status:'PENDENTE',bankId:null})}}
+ const files=[...$('docFiles').files];
+ for(const f of files){
+  const ext=f.name.split('.').pop().toLowerCase();
+  if(ext==='zip'){
+   const zip=await JSZip.loadAsync(await f.arrayBuffer());
+   for(const [name,z] of Object.entries(zip.files)){
+    if(z.dir)continue;const e=name.split('.').pop().toLowerCase();if(!['jpg','jpeg','png','webp','pdf'].includes(e))continue;
+    const id=uid(),blob=await z.async('blob');media.set(id,blob);
+    state.docs.push({id,sourceId:id,name:name.split('/').pop(),path:name,group:inferGroup(name),date:inferDate(name),benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:e==='pdf'?'pdf':'image'});
+   }
+  }else{
+   const id=uid();media.set(id,f);
+   state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:'SEM GRUPO',date:inferDate(f.name),benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image'});
+  }
+ }
  save();render();modal('docsModal',false);$('docFiles').value='';$('docFileList').innerHTML='';
 };
 
@@ -139,21 +156,50 @@ function parseBank(wb,file){
 }
 $('processBanks').onclick=async()=>{for(const f of [...$('bankFiles').files]){const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});state.banks.push(...parseBank(wb,f.name))}save();render();modal('banksModal',false);$('bankFiles').value='';$('bankFileList').innerHTML=''};
 
+function brNumber(s){s=String(s||'').replace(/R\$/gi,'').replace(/\s/g,'').replace(/\./g,'').replace(',','.').replace(/[^0-9.-]/g,'');return Number(s)||0}
+function parseOcr(text,doc){
+ const lines=String(text||'').split(/\n+/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean),items=[];
+ for(const line of lines){
+  const u=norm(line);if(/TOTAL|FORNECEDOR|DESCRICAO|FORMA|VALOR/.test(u))continue;
+  const vals=[...line.matchAll(/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2})/g)];if(!vals.length)continue;
+  const hit=vals[vals.length-1],value=brNumber(hit[0]);if(!value)continue;
+  const dm=line.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);let date=doc.date;
+  if(dm){let y=dm[3];if(y.length===2)y='20'+y;date=y+'-'+dm[2].padStart(2,'0')+'-'+dm[1].padStart(2,'0')}
+  let left=line.slice(0,hit.index).replace(/\b(?:BOLETO|PIX|TED|TRANSFER[EÊ]NCIA|FATURA|DINHEIRO)\b/gi,' ').replace(/\d{1,2}\/\d{1,2}\/\d{2,4}/g,' ').replace(/\s+/g,' ').trim();
+  if(left.length>90)left=left.slice(0,90);items.push({value,date,benef:left||'REVISAR OCR',line});
+ }return items;
+}
+function dateDiff(a,b){if(!a||!b)return 99;return Math.abs((new Date(a+'T12:00:00')-new Date(b+'T12:00:00'))/86400000)}
+function tokenOverlap(a,b){const stop=new Set(['DE','DA','DO','DAS','DOS','E','LTDA','ME','SA']);const A=new Set(norm(a).split(/[^A-Z0-9]+/).filter(x=>x.length>2&&!stop.has(x))),B=new Set(norm(b).split(/[^A-Z0-9]+/).filter(x=>x.length>2&&!stop.has(x)));let n=0;for(const x of A)if(B.has(x))n++;return n}
+function matchScore(d,b){if(!d||!d.value||b.value>=0)return 0;const diff=Math.abs(Math.abs(b.value)-Math.abs(d.value));if(diff>.01)return 0;let s=60,dd=dateDiff(d.date,b.date);if(dd===0)s+=30;else if(dd===1)s+=20;else if(dd<=2)s+=10;else if(dd>7)return 0;s+=Math.min(10,tokenOverlap(d.benef,b.razao+' '+b.lanc)*5);return s}
 function currentDocs(){return state.docs.filter(d=>(!$('filterDate').value||d.date===$('filterDate').value)&&(!$('filterGroup').value||d.group===$('filterGroup').value)&&(!$('filterStatus').value||d.status===$('filterStatus').value))}
-function currentBanks(){const dt=$('filterDate').value;return state.banks.filter(b=>!dt||b.date===dt)}
+function currentBanks(){const dt=$('filterDate').value,d=state.docs.find(x=>x.id===state.selectedDoc);return state.banks.filter(b=>!dt||b.date===dt).map(b=>({b,s:matchScore(d,b)})).sort((x,y)=>y.s-x.s||String(y.b.date).localeCompare(String(x.b.date)))}
 function statusPill(s){return '<span class="pill '+(s==='CONCILIADO'?'ok':s==='DIVERGÊNCIA'?'err':'warn')+'">'+s+'</span>'}
 function render(){
  const groups=[...new Set(state.docs.map(d=>d.group))].sort();const cur=$('filterGroup').value;$('filterGroup').innerHTML='<option value="">Todos os grupos</option>'+groups.map(g=>'<option '+(g===cur?'selected':'')+'>'+g+'</option>').join('');
- const docs=currentDocs(),banks=currentBanks();$('docCount').textContent=docs.length+' itens';$('bankCount').textContent=banks.length+' lançamentos';
+ const docs=currentDocs(),bankRank=currentBanks(),banks=bankRank.map(x=>x.b);$('docCount').textContent=docs.length+' itens';$('bankCount').textContent=banks.length+' lançamentos';
  $('docBody').innerHTML=docs.map(d=>'<tr class="row '+(state.selectedDoc===d.id?'sel':'')+'" data-doc="'+d.id+'"><td>'+d.date+'</td><td>'+d.group+'</td><td>'+d.name+'</td><td>'+(d.value?money(d.value):'—')+'</td><td>'+statusPill(d.status)+'</td></tr>').join('');
- $('bankBody').innerHTML=banks.map(b=>'<tr class="row '+(state.selectedBank===b.id?'sel':'')+'" data-bank="'+b.id+'"><td>'+b.date+'</td><td>'+b.agencia+' / '+b.conta+'</td><td>'+(b.razao||b.lanc)+'</td><td class="'+(b.value<0?'red':'green')+'">'+money(b.value)+'</td></tr>').join('');
+ $('bankBody').innerHTML=bankRank.map(({b,s})=>'<tr class="row '+(state.selectedBank===b.id?'sel ':'')+(s?'suggest':'')+'" data-bank="'+b.id+'"><td>'+b.date+'</td><td>'+b.agencia+' / '+b.conta+'</td><td>'+(b.razao||b.lanc)+'</td><td class="'+(b.value<0?'red':'green')+'">'+money(b.value)+'</td><td>'+(s?'<span class="score">'+(s>=90?'FORTE':s>=70?'POSSÍVEL':'FRACO')+' · '+s+'</span>':'—')+'</td></tr>').join('');
  document.querySelectorAll('[data-doc]').forEach(r=>r.onclick=()=>{state.selectedDoc=r.dataset.doc;fillDoc();render()});document.querySelectorAll('[data-bank]').forEach(r=>r.onclick=()=>{state.selectedBank=r.dataset.bank;render();selectionText()});
  const all=state.docs;$('kDocs').textContent=all.length;$('kOk').textContent=all.filter(x=>x.status==='CONCILIADO').length;$('kPend').textContent=all.filter(x=>x.status==='PENDENTE').length;$('kDiv').textContent=all.filter(x=>x.status==='DIVERGÊNCIA').length;
  $('pendingBody').innerHTML=all.filter(x=>x.status!=='CONCILIADO').map(x=>'<tr><td>'+x.date+'</td><td>'+x.group+'</td><td>'+x.name+'</td><td>'+(x.status==='DIVERGÊNCIA'?(x.obs||'Divergência marcada'):(x.value?'Aguardando lançamento bancário correspondente':'Preencher valor/beneficiário para conciliar'))+'</td></tr>').join('');
  selectionText();
 }
-function fillDoc(){const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return;$('editBenef').value=d.benef||'';$('editValue').value=d.value??'';$('editDate').value=d.date||'';$('editObs').value=d.obs||''}
-function selectionText(){const d=state.docs.find(x=>x.id===state.selectedDoc),b=state.banks.find(x=>x.id===state.selectedBank);$('selectionMsg').textContent=d&&b?d.name+' ↔ '+(b.razao||b.lanc)+' · '+money(b.value):d?'Espelho selecionado: '+d.name:b?'Lançamento selecionado: '+(b.razao||b.lanc):'Selecione um espelho e um lançamento bancário.'}
+function fillDoc(){const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return;$('editBenef').value=d.benef||'';$('editValue').value=d.value??'';$('editDate').value=d.date||'';$('editObs').value=d.obs||'';const blob=media.get(d.sourceId||d.id),p=$('docPreview');if(blob&&d.kind!=='pdf'){p.innerHTML='<img src="'+URL.createObjectURL(blob)+'" alt="Espelho selecionado">'}else p.innerHTML='<span class="muted">'+(d.kind==='pdf'?'PDF carregado · OCR de PDF ainda não ativo.':'Prévia indisponível após recarregar a página.')+'</span>';$('ocrRaw').style.display=d.ocr?'block':'none';$('ocrRaw').textContent=d.ocr||'';$('ocrStatus').textContent=d.ocr?'OCR já executado neste espelho.':''}
+function selectionText(){const d=state.docs.find(x=>x.id===state.selectedDoc),b=state.banks.find(x=>x.id===state.selectedBank);$('selectionMsg').textContent=d&&b?d.name+' ↔ '+(b.razao||b.lanc)+' · '+money(b.value):d?'Espelho selecionado: '+d.name+(d.value?' · '+money(d.value):' · valor ainda não identificado'):b?'Lançamento selecionado: '+(b.razao||b.lanc):'Selecione um espelho e um lançamento bancário.'}
+$('ocrBtn').onclick=async()=>{
+ const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');const blob=media.get(d.sourceId||d.id);if(!blob)return alert('A imagem não está mais disponível nesta sessão. Recarregue o ZIP/imagem para executar o OCR.');if(d.kind==='pdf')return alert('Nesta versão, o OCR automático está habilitado para imagens. PDF permanece como evidência.');
+ $('ocrBtn').disabled=true;$('ocrStatus').textContent='Lendo imagem...';
+ try{
+  const r=await Tesseract.recognize(blob,'por',{logger:m=>{if(m.status==='recognizing text')$('ocrStatus').textContent='OCR '+Math.round((m.progress||0)*100)+'%'}});
+  const text=r.data.text||'',items=parseOcr(text,d);d.ocr=text;$('ocrRaw').style.display='block';$('ocrRaw').textContent=text;
+  if(items.length){
+   const idx=state.docs.findIndex(x=>x.id===d.id),newDocs=items.map((it,n)=>({id:uid(),sourceId:d.sourceId||d.id,name:d.name+(items.length>1?' · item '+(n+1):''),path:d.path,group:d.group,date:it.date||d.date,benef:it.benef,value:it.value,obs:'OCR: '+it.line,status:'PENDENTE',bankId:null,ocr:text,kind:d.kind}));
+   state.docs.splice(idx,1,...newDocs);state.selectedDoc=newDocs[0].id;$('ocrStatus').textContent=items.length+' pagamento(s) identificado(s). Revise antes de conciliar.';
+  }else $('ocrStatus').textContent='OCR concluído, mas nenhum valor foi identificado. Revise manualmente.';
+  save();render();fillDoc();
+ }catch(e){$('ocrStatus').textContent='Falha no OCR. Preencha manualmente.'}finally{$('ocrBtn').disabled=false}
+};
 $('saveDocEdit').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');d.benef=$('editBenef').value.trim();d.value=$('editValue').value?Number($('editValue').value):null;d.date=$('editDate').value;d.obs=$('editObs').value.trim();save();render()};
 $('reconcileBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc),b=state.banks.find(x=>x.id===state.selectedBank);if(!d||!b)return alert('Selecione um espelho e um lançamento bancário.');if(!d.value)return alert('Preencha o valor do espelho antes de conciliar.');if(Math.abs(Math.abs(b.value)-Math.abs(d.value))>.009)return alert('Os valores não coincidem. Use "Marcar divergência" ou ajuste os dados do espelho.');d.status='CONCILIADO';d.bankId=b.id;b.matchedDoc=d.id;d.obs=d.obs||'Conciliação manual confirmada';save();render()};
 $('divergenceBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');d.status='DIVERGÊNCIA';d.obs=$('editObs').value.trim()||'Revisar valor/data/beneficiário';save();render()};
