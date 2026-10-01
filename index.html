@@ -97,7 +97,14 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 <div class="card"><div class="lab">DIFERENÇA</div><div class="val" id="lotDiff">R$ 0,00</div></div>
 <div class="card"><div class="lab">LANÇAMENTOS</div><div class="val" id="lotCount">0</div></div>
 </div>
-<p class="muted">Lotes como Folha PJ/CLT podem ser formados por vários lançamentos bancários. Clique em mais de um lançamento para montar a composição.</p>
+<div class="toolbar">
+  <button class="smallBtn" id="suggestLotBtn">Sugerir composição</button>
+  <button class="smallBtn" id="clearLotSelectionBtn">Limpar seleção</button>
+</div>
+<p class="muted">Lotes como Folha PJ/CLT podem ser formados por vários lançamentos bancários. Clique em mais de um lançamento para montar a composição, ou use a sugestão automática.</p>
+<div style="max-height:220px;overflow:auto;margin-top:10px">
+<table><thead><tr><th>Data</th><th>Conta</th><th>Favorecido / histórico</th><th>Valor</th></tr></thead><tbody id="lotSelectedBody"></tbody></table>
+</div>
 </div>
     <div class="preview" id="docPreview"><span class="muted">A prévia do espelho aparece aqui.</span></div>
     <div class="toolbar"><button class="smallBtn" id="ocrBtn">Ler imagem (OCR)</button><span class="muted" id="ocrStatus"></span></div>
@@ -229,6 +236,24 @@ function matchScore(d,b){if(!d||!d.value||b.value>=0)return 0;const diff=Math.ab
 function isLotDoc(d){const t=norm((d?.benef||'')+' '+(d?.name||'')+' '+(d?.obs||''));return /\bFOLHA\b|LOTE|PRESTADORES DE SERVICO|CELETISTAS/.test(t)}
 function selectedLotBanks(){return (state.selectedBanks||[]).map(id=>state.banks.find(b=>b.id===id)).filter(Boolean)}
 function lotSelectionTotal(){return selectedLotBanks().reduce((s,b)=>s+Math.abs(b.value),0)}
+function suggestLotComposition(d){
+ if(!d||!isLotDoc(d)||!d.value)return [];
+ const target=Math.round(Math.abs(d.value)*100);
+ const pool=state.banks.filter(b=>b.value<0&&(!b.matchedDoc||b.matchedDoc===d.id)&&dateDiff(d.date,b.date)<=1)
+  .sort((a,b)=>Math.abs(b.value)-Math.abs(a.value)).slice(0,24);
+ const vals=pool.map(b=>Math.round(Math.abs(b.value)*100));
+ let found=null,visited=0,maxVisited=180000;
+ function dfs(i,sum,sel){
+  if(found||visited++>maxVisited||sum>target)return;
+  if(sum===target&&sel.length>1){found=sel.map(k=>pool[k]);return}
+  if(i>=pool.length)return;
+  let remaining=0;for(let k=i;k<vals.length;k++)remaining+=vals[k];
+  if(sum+remaining<target)return;
+  dfs(i+1,sum+vals[i],[...sel,i]);dfs(i+1,sum,sel);
+ }
+ dfs(0,0,[]);
+ return found||[];
+}
 function bestBankFor(d){
  if(!d||!d.value||d.status==='CONCILIADO')return null;
  const ranked=state.banks.filter(b=>!b.matchedDoc||b.matchedDoc===d.id).map(b=>({b,s:matchScore(d,b)})).filter(x=>x.s>0).sort((a,b)=>b.s-a.s);
@@ -247,9 +272,9 @@ function render(){
  const docs=currentDocs(),bankRank=currentBanks(),banks=bankRank.map(x=>x.b);const visibleFiles=new Set(docs.map(d=>d.sourceId||d.id));$('docCount').textContent=visibleFiles.size+' arquivo(s) · '+docs.length+' pagamento/item(ns)';$('bankCount').textContent=banks.length+' lançamentos';
  $('docBody').innerHTML=docs.map(d=>'<tr class="row '+(state.selectedDoc===d.id?'sel':'')+'" data-doc="'+d.id+'"><td>'+d.date+'</td><td>'+d.group+'</td><td>'+d.name+(d.itemNo?' <span class="pill">ITEM '+d.itemNo+'</span>':' <span class="pill warn">NÃO LIDO</span>')+'</td><td>'+(d.benef||'—')+'</td><td>'+(d.value?money(d.value):'—')+'</td><td>'+statusPill(d.status)+'</td></tr>').join('');
  $('bankBody').innerHTML=bankRank.map(({b,s})=>{const lot=isLotDoc(state.docs.find(x=>x.id===state.selectedDoc)),multi=(state.selectedBanks||[]).includes(b.id);return '<tr class="row '+((lot?multi:state.selectedBank===b.id)?'sel ':'')+(s&&!b.matchedDoc?'suggest':'')+'" data-bank="'+b.id+'"><td>'+b.date+'</td><td>'+b.agencia+' / '+b.conta+'</td><td>'+(b.razao||b.lanc)+'</td><td class="'+(b.value<0?'red':'green')+'">'+money(b.value)+'</td><td>'+(lot?(multi?'<span class="score">SELECIONADO</span>':'—'):(b.matchedDoc?'—':s?'<span class="score">'+(s>=95?'FORTE':s>=80?'POSSÍVEL':'FRACO')+' · '+s+'</span>':'—'))+'</td><td>'+(b.matchedDoc?'<span class="pill ok">CONCILIADO</span>':'<span class="pill warn">ABERTO</span>')+'</td></tr>'}).join('');
- document.querySelectorAll('[data-doc]').forEach(r=>r.onclick=()=>{state.selectedDoc=r.dataset.doc;render();fillDoc()});document.querySelectorAll('[data-bank]').forEach(r=>r.onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc),id=r.dataset.bank;if(isLotDoc(d)){const b=state.banks.find(x=>x.id===id);if(!b||b.value>=0||(b.matchedDoc&&b.matchedDoc!==d.id))return;state.selectedBanks=state.selectedBanks||[];state.selectedBanks=state.selectedBanks.includes(id)?state.selectedBanks.filter(x=>x!==id):[...state.selectedBanks,id];state.selectedBank=null}else{state.selectedBank=id;state.selectedBanks=[]}render();selectionText();fillDoc()});
+ document.querySelectorAll('[data-doc]').forEach(r=>r.onclick=()=>{if(state.selectedDoc!==r.dataset.doc)state.selectedBanks=[];state.selectedDoc=r.dataset.doc;state.selectedBank=null;render();fillDoc()});document.querySelectorAll('[data-bank]').forEach(r=>r.onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc),id=r.dataset.bank;if(isLotDoc(d)){const b=state.banks.find(x=>x.id===id);if(!b||b.value>=0||(b.matchedDoc&&b.matchedDoc!==d.id))return;state.selectedBanks=state.selectedBanks||[];state.selectedBanks=state.selectedBanks.includes(id)?state.selectedBanks.filter(x=>x!==id):[...state.selectedBanks,id];state.selectedBank=null}else{state.selectedBank=id;state.selectedBanks=[]}render();selectionText();fillDoc()});
  const all=state.docs,files=new Set(all.map(x=>x.sourceId||x.id));$('kFiles').textContent=files.size;$('kDocs').textContent=all.filter(x=>x.itemNo||x.value).length;$('kOk').textContent=all.filter(x=>x.status==='CONCILIADO').length;$('kPend').textContent=all.filter(x=>x.status==='PENDENTE').length;$('kDiv').textContent=all.filter(x=>x.status==='DIVERGÊNCIA').length;
- $('pendingBody').innerHTML=all.filter(x=>x.status!=='CONCILIADO').map(x=>'<tr><td>'+x.date+'</td><td>'+x.group+'</td><td>'+x.name+'</td><td>'+(x.status==='DIVERGÊNCIA'?(x.obs||'Divergência marcada'):(x.value?'Aguardando lançamento bancário correspondente':'Preencher valor/beneficiário para conciliar'))+'</td></tr>').join('');
+ $('pendingBody').innerHTML=all.filter(x=>x.status!=='CONCILIADO').map(x=>'<tr><td>'+x.date+'</td><td>'+x.group+'</td><td>'+x.name+'</td><td>'+(x.status==='DIVERGÊNCIA'?(x.obs||'Divergência marcada'):(x.value?(isLotDoc(x)?'Montar composição dos lançamentos bancários':'Aguardando lançamento bancário correspondente'):'Preencher valor/beneficiário para conciliar'))+'</td></tr>').join('');
  const rr=reviewRows(),strong=rr.filter(x=>x.m&&x.m.s>=95&&!x.conflict).length,possible=rr.filter(x=>x.m&&x.m.s>=80&&x.m.s<95&&!x.conflict).length,noMatch=rr.filter(x=>!x.m||x.m.s<80||x.conflict).length,unread=docs.filter(x=>!x.itemNo&&!x.value).length;
  $('kStrong').textContent=strong;$('kPossible').textContent=possible;$('kNoMatch').textContent=noMatch;$('kUnread').textContent=unread;
  $('reviewBody').innerHTML=rr.filter(x=>x.d.status!=='CONCILIADO').sort((a,b)=>(b.m?.s||0)-(a.m?.s||0)).map(({d,m,conflict})=>'<tr class="row" data-review-doc="'+d.id+'" data-review-bank="'+(m?m.b.id:'')+'"><td>'+d.date+'</td><td>'+d.group+'</td><td>'+d.name+(d.itemNo?' · item '+d.itemNo:'')+'<br><span class="muted">'+(d.benef||'beneficiário não identificado')+'</span></td><td>'+(d.value?money(d.value):'—')+'</td><td>'+(m?(m.b.razao||m.b.lanc)+'<br><span class="muted">'+m.b.agencia+' / '+m.b.conta+'</span>':'—')+'</td><td>'+(conflict?'<span class="pill err">CONFLITO</span>':m&&m.s>=95?'<span class="pill ok">FORTE · '+m.s+'</span>':m&&m.s>=80?'<span class="pill warn">POSSÍVEL · '+m.s+'</span>':m?'<span class="pill">FRACO · '+m.s+'</span>':'<span class="pill err">NÃO ENCONTRADO</span>')+'</td></tr>').join('');
@@ -264,7 +289,11 @@ async function fillDoc(){
  else p.innerHTML='<span class="muted">'+(d.kind==='pdf'?'PDF carregado · mantido como evidência.':'Imagem não localizada no armazenamento deste navegador.')+'</span>';
  $('ocrRaw').style.display=d.ocr?'block':'none';$('ocrRaw').textContent=d.ocr||'';$('ocrStatus').textContent=d.ocrDone?'Arquivo já processado.':'';
  const lot=isLotDoc(d);$('lotPanel').style.display=lot?'block':'none';$('reconcileLotBtn').style.display=lot?'inline-block':'none';$('reconcileBtn').style.display=lot?'none':'inline-block';
- if(lot){const s=lotSelectionTotal(),diff=Math.abs(d.value||0)-s;$('lotTarget').textContent=money(Math.abs(d.value||0));$('lotSelected').textContent=money(s);$('lotDiff').textContent=money(diff);$('lotDiff').className='val '+(Math.abs(diff)<.01?'green':'red');$('lotCount').textContent=selectedLotBanks().length}
+ if(lot){
+ const bs=selectedLotBanks(),s=bs.reduce((x,b)=>x+Math.abs(b.value),0),diff=Math.abs(d.value||0)-s;
+ $('lotTarget').textContent=money(Math.abs(d.value||0));$('lotSelected').textContent=money(s);$('lotDiff').textContent=money(diff);$('lotDiff').className='val '+(Math.abs(diff)<.01?'green':'red');$('lotCount').textContent=bs.length;
+ $('lotSelectedBody').innerHTML=bs.length?bs.map(b=>'<tr><td>'+b.date+'</td><td>'+b.agencia+' / '+b.conta+'</td><td>'+(b.razao||b.lanc)+'</td><td>'+money(Math.abs(b.value))+'</td></tr>').join(''):'<tr><td colspan="4" class="muted">Nenhum lançamento selecionado.</td></tr>';
+}
 }
 function selectionText(){
  const d=state.docs.find(x=>x.id===state.selectedDoc),b=state.banks.find(x=>x.id===state.selectedBank);
@@ -283,6 +312,8 @@ $('ocrBtn').onclick=async()=>{const d=state.docs.find(x=>x.id===state.selectedDo
 $('batchOcrBtn').onclick=async()=>{const candidates=currentDocs().filter(d=>d.kind!=='pdf'&&!d.ocrDone&&!d.itemNo),sources=[];const seen=new Set();for(const d of candidates){const s=d.sourceId||d.id;if(!seen.has(s)){seen.add(s);sources.push(d)}}if(!sources.length)return alert('Não há imagens novas no filtro atual para processar.');$('batchOcrBtn').disabled=true;let files=0,pays=0;try{for(const d of sources){$('batchOcrBtn').textContent='Lendo '+(files+1)+'/'+sources.length;pays+=await processSourceOcr(d,true);files++;render()}alert(files+' arquivo(s) processado(s). '+pays+' pagamento(s) identificado(s). As sugestões de banco já foram calculadas na Revisão automática.')}finally{$('batchOcrBtn').disabled=false;$('batchOcrBtn').textContent='Ler lote visível';render()}};
 
 $('saveDocEdit').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');d.benef=$('editBenef').value.trim();d.value=$('editValue').value?Number($('editValue').value):null;d.date=$('editDate').value;d.obs=$('editObs').value.trim();save();render()};
+$('suggestLotBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!isLotDoc(d))return alert('Selecione um lote.');const comp=suggestLotComposition(d);if(!comp.length)return alert('Nenhuma composição exata foi encontrada entre os lançamentos bancários disponíveis da mesma data ou do dia seguinte/anterior.');state.selectedBanks=comp.map(b=>b.id);render();fillDoc();alert('Composição exata encontrada com '+comp.length+' lançamento(s). Revise os favorecidos antes de conciliar.');};
+$('clearLotSelectionBtn').onclick=()=>{state.selectedBanks=[];render();fillDoc();};
 $('reconcileLotBtn').onclick=()=>{
  const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!isLotDoc(d))return alert('Selecione um lote.');
  const bs=selectedLotBanks();if(!bs.length)return alert('Selecione os lançamentos bancários que compõem o lote.');
