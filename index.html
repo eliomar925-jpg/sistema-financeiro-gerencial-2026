@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Conciliação Diária de Pagamentos</title>
+<title>Conciliação Diária de Pagamentos · Setembro 2026</title>
 <style>
 :root{--navy:#0d1b2a;--navy2:#17324d;--bg:#f3f6f9;--card:#fff;--line:#dfe6ed;--text:#182433;--muted:#6f7b88;--green:#16866f;--red:#cc4d56;--amber:#c88700;--blue:#2176ae}
 *{box-sizing:border-box}body{margin:0;font:14px system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}button,input,select{font:inherit}
@@ -20,8 +20,8 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 <div class="app">
 <header class="top">
   <div class="brand">
-    <h1>Conciliação Diária de Pagamentos</h1>
-    <p>WhatsApp → espelho/comprovante → extrato bancário → conciliação → pendência</p>
+    <h1>Conciliação Diária de Pagamentos · Setembro/2026</h1>
+    <p>Escopo atual: 01/09/2026 a 30/09/2026 · WhatsApp → espelho → extrato → conciliação</p>
   </div>
   <div class="actions">
     <button class="btn" id="openDocs">Carregar espelhos</button>
@@ -32,7 +32,8 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 
 <main class="main">
   <div class="filters">
-    <input type="date" id="filterDate">
+    <span class="pill ok">SETEMBRO 2026</span>
+    <input type="date" id="filterDate" min="2026-09-01" max="2026-09-30">
     <select id="filterGroup"><option value="">Todos os grupos</option></select>
     <select id="filterStatus"><option value="">Todos os status</option><option>PENDENTE</option><option>CONCILIADO</option><option>DIVERGÊNCIA</option></select>
     <button class="smallBtn" id="todayBtn">Hoje</button>
@@ -92,7 +93,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <table><thead><tr><th>Data</th><th>Grupo</th><th>Arquivo</th><th>Motivo</th></tr></thead><tbody id="pendingBody"></tbody></table>
   </div>
 
-  <div class="foot">MVP · Conciliação Diária de Pagamentos · processamento local no navegador</div>
+  <div class="foot">MVP · Conciliação Diária de Pagamentos · competência operacional: Setembro/2026 · processamento local</div>
 </main>
 </div>
 
@@ -118,7 +119,7 @@ const $=id=>document.getElementById(id);
 const norm=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
 const money=n=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(n)||0);
 const isoDate=d=>{if(!d)return'';if(d instanceof Date)return d.toISOString().slice(0,10);const s=String(d);const m=s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);return m?m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'):s.slice(0,10)};
-const inferDate=name=>{const n=name.replace(/\D/g,'');let m=name.match(/(?:^|_)(\d{2})(\d{2})(\d{4})(?:_|\.|$)/);if(m)return m[3]+'-'+m[2]+'-'+m[1];m=name.match(/(?:^|_)(\d{2})(\d{2})(?:_|\.|$)/);if(m)return '2026-'+m[2]+'-'+m[1];return''};
+const inferDate=name=>{const s=String(name);let m=s.match(/(?:^|\D)(\d{2})(\d{2})(2026)(?:\D|$)/);if(m)return m[3]+'-'+m[2]+'-'+m[1];m=s.match(/(?:^|\D)(\d{2})(\d{2})(?:\D|$)/);if(m)return '2026-'+m[2]+'-'+m[1];return''};
 const inferGroup=path=>{const p=String(path).replace(/\\/g,'/').split('/').filter(Boolean);return p.length>1?p[p.length-2].replaceAll('_',' '):'SEM GRUPO'};
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 function save(){localStorage.setItem('conciliacao_diaria_v2',JSON.stringify({docs:state.docs,banks:state.banks}))}
@@ -130,22 +131,25 @@ $('docFiles').onchange=()=>{$('docFileList').innerHTML=[...$('docFiles').files].
 $('bankFiles').onchange=()=>{$('bankFileList').innerHTML=[...$('bankFiles').files].map(f=>'<div class="fileLine">'+f.name+'</div>').join('')};
 
 $('processDocs').onclick=async()=>{
- const files=[...$('docFiles').files];
+ const files=[...$('docFiles').files];let accepted=0,skipped=0,unknown=0;
  for(const f of files){
   const ext=f.name.split('.').pop().toLowerCase();
   if(ext==='zip'){
    const zip=await JSZip.loadAsync(await f.arrayBuffer());
    for(const [name,z] of Object.entries(zip.files)){
     if(z.dir)continue;const e=name.split('.').pop().toLowerCase();if(!['jpg','jpeg','png','webp','pdf'].includes(e))continue;
+    const date=inferDate(name);if(date&&date.slice(0,7)!=='2026-09'){skipped++;continue}if(!date){unknown++;continue}
     const id=uid(),blob=await z.async('blob');media.set(id,blob);
-    state.docs.push({id,sourceId:id,name:name.split('/').pop(),path:name,group:inferGroup(name),date:inferDate(name),benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:e==='pdf'?'pdf':'image'});
+    state.docs.push({id,sourceId:id,name:name.split('/').pop(),path:name,group:inferGroup(name),date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:e==='pdf'?'pdf':'image'});accepted++;
    }
   }else{
+   const date=inferDate(f.name);if(date&&date.slice(0,7)!=='2026-09'){skipped++;continue}if(!date){unknown++;continue}
    const id=uid();media.set(id,f);
-   state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:'SEM GRUPO',date:inferDate(f.name),benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image'});
+   state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:'SEM GRUPO',date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image'});accepted++;
   }
  }
  save();render();modal('docsModal',false);$('docFiles').value='';$('docFileList').innerHTML='';
+ alert(accepted+' espelho(s) de setembro adicionados.'+(skipped?' '+skipped+' arquivo(s) de outros meses ignorados.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável ignorados.':''));
 };
 
 function parseBank(wb,file){
@@ -154,7 +158,7 @@ function parseBank(wb,file){
  const rows=XLSX.utils.sheet_to_json(ws,{range:hr,defval:null,raw:true});for(const r of rows){const lanc=r['Lançamento']??r['LANCAMENTO'];const val=Number(r['Valor (R$)']??r['VALOR']??0);if(!lanc||!val||norm(lanc).includes('SALDO ANTERIOR')||norm(lanc).includes('SALDO APLIC'))continue;out.push({id:uid(),file,empresa,agencia,conta,date:isoDate(r['Data']??r['DATA']),lanc:String(lanc),razao:String(r['Razão Social']??r['RAZAO SOCIAL']??''),doc:String(r['CPF/CNPJ']??''),value:val,matchedDoc:null})}}
  return out
 }
-$('processBanks').onclick=async()=>{for(const f of [...$('bankFiles').files]){const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});state.banks.push(...parseBank(wb,f.name))}save();render();modal('banksModal',false);$('bankFiles').value='';$('bankFileList').innerHTML=''};
+$('processBanks').onclick=async()=>{let accepted=0,skipped=0;for(const f of [...$('bankFiles').files]){const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const rows=parseBank(wb,f.name);for(const r of rows){if(r.date&&r.date.slice(0,7)==='2026-09'){state.banks.push(r);accepted++}else skipped++}}save();render();modal('banksModal',false);$('bankFiles').value='';$('bankFileList').innerHTML='';alert(accepted+' lançamento(s) bancário(s) de setembro adicionados.'+(skipped?' '+skipped+' fora do período ignorados.':''))};
 
 function brNumber(s){s=String(s||'').replace(/R\$/gi,'').replace(/\s/g,'').replace(/\./g,'').replace(',','.').replace(/[^0-9.-]/g,'');return Number(s)||0}
 function parseOcr(text,doc){
@@ -204,7 +208,7 @@ $('saveDocEdit').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDo
 $('reconcileBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc),b=state.banks.find(x=>x.id===state.selectedBank);if(!d||!b)return alert('Selecione um espelho e um lançamento bancário.');if(!d.value)return alert('Preencha o valor do espelho antes de conciliar.');if(Math.abs(Math.abs(b.value)-Math.abs(d.value))>.009)return alert('Os valores não coincidem. Use "Marcar divergência" ou ajuste os dados do espelho.');d.status='CONCILIADO';d.bankId=b.id;b.matchedDoc=d.id;d.obs=d.obs||'Conciliação manual confirmada';save();render()};
 $('divergenceBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');d.status='DIVERGÊNCIA';d.obs=$('editObs').value.trim()||'Revisar valor/data/beneficiário';save();render()};
 $('undoBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return;const b=state.banks.find(x=>x.id===d.bankId);if(b)b.matchedDoc=null;d.bankId=null;d.status='PENDENTE';save();render()};
-['filterDate','filterGroup','filterStatus'].forEach(id=>$(id).onchange=render);$('clearFilters').onclick=()=>{$('filterDate').value='';$('filterGroup').value='';$('filterStatus').value='';render()};$('todayBtn').onclick=()=>{$('filterDate').value=new Date().toISOString().slice(0,10);render()};
+['filterDate','filterGroup','filterStatus'].forEach(id=>$(id).onchange=render);$('clearFilters').onclick=()=>{$('filterDate').value='';$('filterGroup').value='';$('filterStatus').value='';render()};$('todayBtn').onclick=()=>{const d=new Date().toISOString().slice(0,10);$('filterDate').value=d.startsWith('2026-09')?d:'2026-09-30';render()};
 load();render();
 </script>
 </body></html>
