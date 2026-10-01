@@ -54,6 +54,22 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <p class="muted">Um grupo pode enviar vários arquivos no mesmo dia e cada arquivo pode conter um ou vários pagamentos. Primeiro identificamos os pagamentos de cada arquivo; depois conciliamos cada pagamento com o extrato.</p>
   </div>
 
+  <div class="panel">
+    <div class="paneHead" style="padding:0 0 12px;border:0">
+      <div><h2 style="margin:0">Revisão automática</h2><div class="muted">O sistema sugere o melhor lançamento bancário para cada pagamento identificado. A confirmação continua manual.</div></div>
+      <button class="smallBtn primary" id="reviewBtn">Analisar correspondências</button>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
+      <div class="card"><div class="lab">MATCH FORTE</div><div class="val green" id="kStrong">0</div></div>
+      <div class="card"><div class="lab">MATCH POSSÍVEL</div><div class="val amber" id="kPossible">0</div></div>
+      <div class="card"><div class="lab">SEM CORRESPONDÊNCIA</div><div class="val red" id="kNoMatch">0</div></div>
+      <div class="card"><div class="lab">AINDA NÃO LIDOS</div><div class="val" id="kUnread">0</div></div>
+    </div>
+    <div style="max-height:260px;overflow:auto">
+      <table><thead><tr><th>Data</th><th>Grupo</th><th>Pagamento</th><th>Valor</th><th>Sugestão no banco</th><th>Confiança</th></tr></thead><tbody id="reviewBody"></tbody></table>
+    </div>
+  </div>
+
   <div class="workspace">
     <section class="pane">
       <div class="paneHead"><div><b>Arquivos e pagamentos do WhatsApp</b><div class="muted" id="docCount">0 itens</div></div><div><button class="smallBtn" id="batchOcrBtn">Ler lote visível</button> <span class="pill">WHATSAPP</span></div></div>
@@ -200,6 +216,16 @@ function parseOcr(text,doc){
 function dateDiff(a,b){if(!a||!b)return 99;return Math.abs((new Date(a+'T12:00:00')-new Date(b+'T12:00:00'))/86400000)}
 function tokenOverlap(a,b){const stop=new Set(['DE','DA','DO','DAS','DOS','E','LTDA','ME','SA']);const A=new Set(norm(a).split(/[^A-Z0-9]+/).filter(x=>x.length>2&&!stop.has(x))),B=new Set(norm(b).split(/[^A-Z0-9]+/).filter(x=>x.length>2&&!stop.has(x)));let n=0;for(const x of A)if(B.has(x))n++;return n}
 function matchScore(d,b){if(!d||!d.value||b.value>=0)return 0;const diff=Math.abs(Math.abs(b.value)-Math.abs(d.value));if(diff>.01)return 0;let s=60,dd=dateDiff(d.date,b.date);if(dd===0)s+=30;else if(dd===1)s+=20;else if(dd<=2)s+=10;else if(dd>7)return 0;s+=Math.min(10,tokenOverlap(d.benef,b.razao+' '+b.lanc)*5);return s}
+function bestBankFor(d){
+ if(!d||!d.value||d.status==='CONCILIADO')return null;
+ const ranked=state.banks.filter(b=>!b.matchedDoc||b.matchedDoc===d.id).map(b=>({b,s:matchScore(d,b)})).filter(x=>x.s>0).sort((a,b)=>b.s-a.s);
+ if(!ranked.length)return null;return ranked[0];
+}
+function reviewRows(){
+ const docs=currentDocs(),raw=docs.filter(d=>d.itemNo||d.value),rows=raw.map(d=>({d,m:bestBankFor(d)}));
+ const use=new Map();for(const x of rows){if(x.m){const id=x.m.b.id;use.set(id,(use.get(id)||0)+1)}}
+ return rows.map(x=>({...x,conflict:x.m&&(use.get(x.m.b.id)||0)>1}));
+}
 function currentDocs(){return state.docs.filter(d=>(!$('filterDate').value||d.date===$('filterDate').value)&&(!$('filterGroup').value||d.group===$('filterGroup').value)&&(!$('filterStatus').value||d.status===$('filterStatus').value))}
 function currentBanks(){const dt=$('filterDate').value,d=state.docs.find(x=>x.id===state.selectedDoc);return state.banks.filter(b=>!dt||b.date===dt).map(b=>({b,s:matchScore(d,b)})).sort((x,y)=>y.s-x.s||String(y.b.date).localeCompare(String(x.b.date)))}
 function statusPill(s){return '<span class="pill '+(s==='CONCILIADO'?'ok':s==='DIVERGÊNCIA'?'err':'warn')+'">'+s+'</span>'}
@@ -211,6 +237,10 @@ function render(){
  document.querySelectorAll('[data-doc]').forEach(r=>r.onclick=()=>{state.selectedDoc=r.dataset.doc;render();fillDoc()});document.querySelectorAll('[data-bank]').forEach(r=>r.onclick=()=>{state.selectedBank=r.dataset.bank;render();selectionText()});
  const all=state.docs,files=new Set(all.map(x=>x.sourceId||x.id));$('kFiles').textContent=files.size;$('kDocs').textContent=all.filter(x=>x.itemNo||x.value).length;$('kOk').textContent=all.filter(x=>x.status==='CONCILIADO').length;$('kPend').textContent=all.filter(x=>x.status==='PENDENTE').length;$('kDiv').textContent=all.filter(x=>x.status==='DIVERGÊNCIA').length;
  $('pendingBody').innerHTML=all.filter(x=>x.status!=='CONCILIADO').map(x=>'<tr><td>'+x.date+'</td><td>'+x.group+'</td><td>'+x.name+'</td><td>'+(x.status==='DIVERGÊNCIA'?(x.obs||'Divergência marcada'):(x.value?'Aguardando lançamento bancário correspondente':'Preencher valor/beneficiário para conciliar'))+'</td></tr>').join('');
+ const rr=reviewRows(),strong=rr.filter(x=>x.m&&x.m.s>=90&&!x.conflict).length,possible=rr.filter(x=>x.m&&x.m.s>=70&&x.m.s<90&&!x.conflict).length,noMatch=rr.filter(x=>!x.m||x.m.s<70||x.conflict).length,unread=docs.filter(x=>!x.itemNo&&!x.value).length;
+ $('kStrong').textContent=strong;$('kPossible').textContent=possible;$('kNoMatch').textContent=noMatch;$('kUnread').textContent=unread;
+ $('reviewBody').innerHTML=rr.filter(x=>x.d.status!=='CONCILIADO').sort((a,b)=>(b.m?.s||0)-(a.m?.s||0)).map(({d,m,conflict})=>'<tr class="row" data-review-doc="'+d.id+'" data-review-bank="'+(m?m.b.id:'')+'"><td>'+d.date+'</td><td>'+d.group+'</td><td>'+d.name+(d.itemNo?' · item '+d.itemNo:'')+'<br><span class="muted">'+(d.benef||'beneficiário não identificado')+'</span></td><td>'+(d.value?money(d.value):'—')+'</td><td>'+(m?(m.b.razao||m.b.lanc)+'<br><span class="muted">'+m.b.agencia+' / '+m.b.conta+'</span>':'—')+'</td><td>'+(conflict?'<span class="pill err">CONFLITO</span>':m&&m.s>=90?'<span class="pill ok">FORTE · '+m.s+'</span>':m&&m.s>=70?'<span class="pill warn">POSSÍVEL · '+m.s+'</span>':m?'<span class="pill">FRACO · '+m.s+'</span>':'<span class="pill err">NÃO ENCONTRADO</span>')+'</td></tr>').join('');
+ document.querySelectorAll('[data-review-doc]').forEach(r=>r.onclick=()=>{state.selectedDoc=r.dataset.reviewDoc;state.selectedBank=r.dataset.reviewBank||null;render();fillDoc();document.querySelector('.workspace').scrollIntoView({behavior:'smooth',block:'start'})});
  selectionText();
 }
 async function fillDoc(){const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return;$('editBenef').value=d.benef||'';$('editValue').value=d.value??'';$('editDate').value=d.date||'';$('editObs').value=d.obs||'';const blob=await getMedia(d.sourceId||d.id),p=$('docPreview');if(blob&&d.kind!=='pdf'){p.innerHTML='<img src="'+URL.createObjectURL(blob)+'" alt="Espelho selecionado">'}else p.innerHTML='<span class="muted">'+(d.kind==='pdf'?'PDF carregado · mantido como evidência.':'Imagem não localizada no armazenamento deste navegador.')+'</span>';$('ocrRaw').style.display=d.ocr?'block':'none';$('ocrRaw').textContent=d.ocr||'';$('ocrStatus').textContent=d.ocrDone?'Arquivo já processado.':''}
@@ -224,7 +254,7 @@ async function processSourceOcr(d,quiet=false){
  state.docs.splice(idx,1,...newDocs);save();return newDocs.length
 }
 $('ocrBtn').onclick=async()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um arquivo/pagamento.');$('ocrBtn').disabled=true;$('ocrStatus').textContent='Lendo arquivo...';try{const n=await processSourceOcr(d,false);const first=state.docs.find(x=>(x.sourceId||x.id)===(d.sourceId||d.id));if(first)state.selectedDoc=first.id;$('ocrStatus').textContent=n?n+' pagamento(s) identificado(s) neste arquivo.':'OCR concluído; revise manualmente.';render();await fillDoc()}catch(e){$('ocrStatus').textContent='Falha no OCR. Revise manualmente.'}finally{$('ocrBtn').disabled=false}};
-$('batchOcrBtn').onclick=async()=>{const candidates=currentDocs().filter(d=>d.kind!=='pdf'&&!d.ocrDone&&!d.itemNo),sources=[];const seen=new Set();for(const d of candidates){const s=d.sourceId||d.id;if(!seen.has(s)){seen.add(s);sources.push(d)}}if(!sources.length)return alert('Não há imagens novas no filtro atual para processar.');$('batchOcrBtn').disabled=true;let files=0,pays=0;try{for(const d of sources){$('batchOcrBtn').textContent='Lendo '+(files+1)+'/'+sources.length;pays+=await processSourceOcr(d,true);files++;render()}alert(files+' arquivo(s) processado(s). '+pays+' pagamento(s) identificado(s). Revise os itens antes de conciliar.')}finally{$('batchOcrBtn').disabled=false;$('batchOcrBtn').textContent='Ler lote visível';render()}};
+$('batchOcrBtn').onclick=async()=>{const candidates=currentDocs().filter(d=>d.kind!=='pdf'&&!d.ocrDone&&!d.itemNo),sources=[];const seen=new Set();for(const d of candidates){const s=d.sourceId||d.id;if(!seen.has(s)){seen.add(s);sources.push(d)}}if(!sources.length)return alert('Não há imagens novas no filtro atual para processar.');$('batchOcrBtn').disabled=true;let files=0,pays=0;try{for(const d of sources){$('batchOcrBtn').textContent='Lendo '+(files+1)+'/'+sources.length;pays+=await processSourceOcr(d,true);files++;render()}alert(files+' arquivo(s) processado(s). '+pays+' pagamento(s) identificado(s). As sugestões de banco já foram calculadas na Revisão automática.')}finally{$('batchOcrBtn').disabled=false;$('batchOcrBtn').textContent='Ler lote visível';render()}};
 
 $('saveDocEdit').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');d.benef=$('editBenef').value.trim();d.value=$('editValue').value?Number($('editValue').value):null;d.date=$('editDate').value;d.obs=$('editObs').value.trim();save();render()};
 $('reconcileBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc),b=state.banks.find(x=>x.id===state.selectedBank);if(!d||!b)return alert('Selecione um pagamento e um lançamento bancário.');if(b.matchedDoc&&b.matchedDoc!==d.id)return alert('Este lançamento bancário já está conciliado com outro pagamento.');if(!d.value)return alert('Preencha o valor do espelho antes de conciliar.');if(Math.abs(Math.abs(b.value)-Math.abs(d.value))>.009)return alert('Os valores não coincidem. Use "Marcar divergência" ou ajuste os dados do espelho.');d.status='CONCILIADO';d.bankId=b.id;b.matchedDoc=d.id;d.obs=d.obs||'Conciliação manual confirmada';save();render()};
@@ -233,6 +263,7 @@ $('undoBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);i
 $('clearDocsBtn').onclick=async()=>{if(!confirm('Limpar todos os espelhos e pagamentos identificados de setembro? Os extratos serão mantidos.'))return;const ids=[...new Set(state.docs.map(d=>d.sourceId||d.id))];await deleteMediaIds(ids);state.docs=[];state.selectedDoc=null;state.banks.forEach(b=>b.matchedDoc=null);save();render();modal('clearModal',false);$('docPreview').innerHTML='<span class="muted">A prévia do espelho aparece aqui.</span>';alert('Espelhos removidos. Os extratos foram preservados.');};
 $('clearBanksBtn').onclick=()=>{if(!confirm('Limpar todos os extratos bancários de setembro? Os espelhos serão mantidos.'))return;state.banks=[];state.selectedBank=null;state.docs.forEach(d=>{d.bankId=null;if(d.status==='CONCILIADO')d.status='PENDENTE'});save();render();modal('clearModal',false);alert('Extratos removidos. Os espelhos foram preservados.');};
 $('clearAllBtn').onclick=async()=>{if(!confirm('Limpar TODO o trabalho de setembro e recomeçar?'))return;await clearAllMedia();state.docs=[];state.banks=[];state.selectedDoc=null;state.selectedBank=null;localStorage.removeItem('conciliacao_diaria_v2');save();render();modal('clearModal',false);$('docPreview').innerHTML='<span class="muted">A prévia do espelho aparece aqui.</span>';alert('Trabalho de setembro limpo. Agora você pode carregar novamente os arquivos desejados.');};
+$('reviewBtn').onclick=()=>{render();const rr=reviewRows(),fortes=rr.filter(x=>x.m&&x.m.s>=90&&!x.conflict).length,possiveis=rr.filter(x=>x.m&&x.m.s>=70&&x.m.s<90&&!x.conflict).length,sem=rr.filter(x=>!x.m||x.m.s<70||x.conflict).length;alert('Análise concluída: '+fortes+' match(es) forte(s), '+possiveis+' possível(is) e '+sem+' sem correspondência segura. Nenhum pagamento foi conciliado automaticamente.');};
 ['filterDate','filterGroup','filterStatus'].forEach(id=>$(id).onchange=render);$('clearFilters').onclick=()=>{$('filterDate').value='';$('filterGroup').value='';$('filterStatus').value='';render()};$('todayBtn').onclick=()=>{const d=new Date().toISOString().slice(0,10);$('filterDate').value=d.startsWith('2026-09')?d:'2026-09-30';render()};
 load();render();
 </script>
