@@ -99,10 +99,11 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 </div>
 <div class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:10px">
   <div class="card"><div class="lab">DÉBITOS DISPONÍVEIS ±1 DIA</div><div class="val" id="lotAvailable">R$ 0,00</div></div>
-  <div class="card"><div class="lab">COBERTURA DO LOTE</div><div class="val" id="lotCoverage">0%</div></div>
-  <div class="card"><div class="lab">FALTA NO EXTRATO CARREGADO</div><div class="val red" id="lotMissing">R$ 0,00</div></div>
+  <div class="card"><div class="lab">COBERTURA MÁXIMA TEÓRICA</div><div class="val" id="lotCoverage">0%</div></div>
+  <div class="card"><div class="lab">DÉFICIT MÍNIMO DE COBERTURA</div><div class="val red" id="lotMissing">R$ 0,00</div></div>
 </div>
 <div id="lotDiagnosis" class="muted" style="margin:10px 0"></div>
+<div id="lotAccounts" class="muted" style="margin:6px 0 10px"></div>
 <div class="toolbar">
   <button class="smallBtn" id="suggestLotBtn">Sugerir composição</button>
   <button class="smallBtn" id="clearLotSelectionBtn">Limpar seleção</button>
@@ -304,7 +305,8 @@ async function fillDoc(){
  const bs=selectedLotBanks(),s=bs.reduce((x,b)=>x+Math.abs(b.value),0),diff=Math.abs(d.value||0)-s;
  $('lotTarget').textContent=money(Math.abs(d.value||0));$('lotSelected').textContent=money(s);$('lotDiff').textContent=money(diff);$('lotDiff').className='val '+(Math.abs(diff)<.01?'green':'red');$('lotCount').textContent=bs.length;
  const cov=lotCoverage(d);$('lotAvailable').textContent=money(cov.available);$('lotCoverage').textContent=cov.pct.toFixed(1).replace('.',',')+'%';$('lotMissing').textContent=money(cov.missing);
- $('lotDiagnosis').innerHTML=cov.available+0.009<cov.target?'<span class="pill err">EXTRATO INSUFICIENTE</span> Os débitos bancários carregados no período não alcançam o total deste lote. Carregue os extratos/contas faltantes antes de procurar uma composição.':'<span class="pill ok">COBERTURA SUFICIENTE</span> Há valor bancário disponível suficiente para testar a composição do lote.';
+ $('lotDiagnosis').innerHTML=cov.available+0.009<cov.target?'<span class="pill err">COBERTURA INSUFICIENTE</span> Mesmo usando todos os débitos disponíveis de ±1 dia, o valor não alcança o lote. O déficit abaixo é mínimo: os débitos exibidos podem pertencer a outros pagamentos.':'<span class="pill ok">VALOR DISPONÍVEL SUFICIENTE</span> Há volume bancário para testar combinações, mas isso não significa que todos esses débitos pertençam ao lote.';
+ const ac=[...new Set(cov.banks.map(b=>b.agencia+' / '+b.conta))];$('lotAccounts').innerHTML='<b>Contas com débitos disponíveis no período:</b> '+(ac.length?ac.join(' · '):'nenhuma')+'.';
  $('lotSelectedBody').innerHTML=bs.length?bs.map(b=>'<tr><td>'+b.date+'</td><td>'+b.agencia+' / '+b.conta+'</td><td>'+(b.razao||b.lanc)+'</td><td>'+money(Math.abs(b.value))+'</td></tr>').join(''):'<tr><td colspan="4" class="muted">Nenhum lançamento selecionado.</td></tr>';
 }
 }
@@ -325,7 +327,7 @@ $('ocrBtn').onclick=async()=>{const d=state.docs.find(x=>x.id===state.selectedDo
 $('batchOcrBtn').onclick=async()=>{const candidates=currentDocs().filter(d=>d.kind!=='pdf'&&!d.ocrDone&&!d.itemNo),sources=[];const seen=new Set();for(const d of candidates){const s=d.sourceId||d.id;if(!seen.has(s)){seen.add(s);sources.push(d)}}if(!sources.length)return alert('Não há imagens novas no filtro atual para processar.');$('batchOcrBtn').disabled=true;let files=0,pays=0;try{for(const d of sources){$('batchOcrBtn').textContent='Lendo '+(files+1)+'/'+sources.length;pays+=await processSourceOcr(d,true);files++;render()}alert(files+' arquivo(s) processado(s). '+pays+' pagamento(s) identificado(s). As sugestões de banco já foram calculadas na Revisão automática.')}finally{$('batchOcrBtn').disabled=false;$('batchOcrBtn').textContent='Ler lote visível';render()}};
 
 $('saveDocEdit').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');d.benef=$('editBenef').value.trim();d.value=$('editValue').value?Number($('editValue').value):null;d.date=$('editDate').value;d.obs=$('editObs').value.trim();save();render()};
-$('suggestLotBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!isLotDoc(d))return alert('Selecione um lote.');const comp=suggestLotComposition(d);if(!comp.length){const cov=lotCoverage(d);if(cov.available+0.009<cov.target)return alert('Extrato insuficiente para este lote. Total do lote: '+money(cov.target)+'. Débitos disponíveis no período: '+money(cov.available)+'. Ainda faltam '+money(cov.missing)+' em lançamentos bancários carregados.');return alert('Há cobertura bancária suficiente, mas nenhuma combinação exata foi encontrada. Revise data, conta e lançamentos do lote.');}state.selectedBanks=comp.map(b=>b.id);render();fillDoc();alert('Composição exata encontrada com '+comp.length+' lançamento(s). Revise os favorecidos antes de conciliar.');};
+$('suggestLotBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!isLotDoc(d))return alert('Selecione um lote.');const comp=suggestLotComposition(d);if(!comp.length){const cov=lotCoverage(d);if(cov.available+0.009<cov.target)return alert('Cobertura bancária insuficiente. Total do lote: '+money(cov.target)+'. Todos os débitos disponíveis em ±1 dia somam '+money(cov.available)+'. Déficit mínimo: '+money(cov.missing)+'. Isso não prova que os débitos disponíveis pertençam ao lote; pode faltar a conta/extrato de origem.');return alert('Há cobertura bancária suficiente, mas nenhuma combinação exata foi encontrada. Revise data, conta e lançamentos do lote.');}state.selectedBanks=comp.map(b=>b.id);render();fillDoc();alert('Composição exata encontrada com '+comp.length+' lançamento(s). Revise os favorecidos antes de conciliar.');};
 $('clearLotSelectionBtn').onclick=()=>{state.selectedBanks=[];render();fillDoc();};
 $('reconcileLotBtn').onclick=()=>{
  const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!isLotDoc(d))return alert('Selecione um lote.');
