@@ -193,7 +193,7 @@ async function getMedia(id){if(media.has(id))return media.get(id);try{const db=a
 async function deleteMediaIds(ids){for(const id of ids)media.delete(id);try{const db=await mediaDb();await new Promise((resolve,reject)=>{const tx=db.transaction('media','readwrite'),store=tx.objectStore('media');ids.forEach(id=>store.delete(id));tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}catch(e){}}
 async function clearAllMedia(){media.clear();try{const db=await mediaDb();await new Promise((resolve,reject)=>{const tx=db.transaction('media','readwrite');tx.objectStore('media').clear();tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}catch(e){}}
 function save(){localStorage.setItem('conciliacao_diaria_v2',JSON.stringify({docs:state.docs,banks:state.banks}))}
-function load(){try{const x=JSON.parse(localStorage.getItem('conciliacao_diaria_v2')||localStorage.getItem('conciliacao_diaria_v1')||'{}');state.docs=x.docs||[];state.banks=x.banks||[]}catch(e){}}
+function load(){try{const x=JSON.parse(localStorage.getItem('conciliacao_diaria_v2')||localStorage.getItem('conciliacao_diaria_v1')||'{}');state.docs=x.docs||[];state.banks=x.banks||[];let changed=false;for(const d of state.docs){if(!d.group||d.group==='SEM GRUPO'){const g=inferGroup(d.path||d.name);if(g!=='SEM GRUPO'){d.group=g;changed=true}}}if(changed)save()}catch(e){}}
 function modal(id,on=true){$(id).classList.toggle('on',on)}
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>modal(b.dataset.close,false));
 $('openDocs').onclick=()=>modal('docsModal');$('openBanks').onclick=()=>modal('banksModal');$('openClear').onclick=()=>modal('clearModal');$('saveWork').onclick=()=>{save();alert('Trabalho salvo neste navegador.')};
