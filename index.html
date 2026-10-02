@@ -119,6 +119,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <div class="toolbar"><button class="smallBtn" id="ocrBtn">Ler imagem (OCR)</button><span class="muted" id="ocrStatus"></span></div>
     <div id="ocrRaw" class="ocrText" style="display:none"></div>
     <div class="detailGrid">
+      <div><label>Grupo<select id="editGroup"><option>SEM GRUPO</option><option>ESCRITORIO</option><option>EVENTOS</option><option>LS</option><option>DIZZON</option><option>KART LOVE</option><option>VINA CALMON</option></select></label></div>
       <div><label>Beneficiário / favorecido<input id="editBenef" placeholder="Preencher quando necessário"></label></div>
       <div><label>Valor do espelho<input id="editValue" type="number" step="0.01" placeholder="0,00"></label></div>
       <div><label>Data do pagamento<input id="editDate" type="date"></label></div>
@@ -143,7 +144,12 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 
 <div class="modal" id="docsModal"><div class="modalBox">
   <div class="modalHead"><div><h2>Adicionar espelhos do WhatsApp</h2><div class="muted">Você pode adicionar novos arquivos a qualquer momento. Os já carregados são preservados e duplicados exatos são ignorados. Uma imagem pode conter vários pagamentos.</div></div><button class="close" data-close="docsModal">×</button></div>
-  <div class="drop"><input id="docFiles" type="file" accept=".zip,.jpg,.jpeg,.png,.webp,.pdf" multiple></div>
+  <div class="detailGrid" style="margin:12px 0">
+  <div><label>Grupo destes arquivos (opcional)
+    <select id="uploadGroup"><option value="">Detectar automaticamente</option><option>ESCRITORIO</option><option>EVENTOS</option><option>LS</option><option>DIZZON</option><option>KART LOVE</option><option>VINA CALMON</option></select>
+  </label></div>
+</div>
+<div class="drop"><input id="docFiles" type="file" accept=".zip,.jpg,.jpeg,.png,.webp,.pdf" multiple></div>
   <div id="docFileList"></div>
   <div class="toolbar"><button class="smallBtn primary" id="processDocs">Adicionar à fila</button></div>
 </div></div>
@@ -201,7 +207,7 @@ $('docFiles').onchange=()=>{$('docFileList').innerHTML=[...$('docFiles').files].
 $('bankFiles').onchange=()=>{$('bankFileList').innerHTML=[...$('bankFiles').files].map(f=>'<div class="fileLine">'+f.name+'</div>').join('')};
 
 $('processDocs').onclick=async()=>{
- const files=[...$('docFiles').files];let accepted=0,skipped=0,unknown=0;
+ const files=[...$('docFiles').files],uploadGroup=$('uploadGroup').value;let accepted=0,skipped=0,unknown=0;
  for(const f of files){
   const ext=f.name.split('.').pop().toLowerCase();
   if(ext==='zip'){
@@ -210,15 +216,15 @@ $('processDocs').onclick=async()=>{
     if(z.dir)continue;const e=name.split('.').pop().toLowerCase();if(!['jpg','jpeg','png','webp','pdf'].includes(e))continue;
     const date=inferDate(name);if(date&&!date.startsWith('2026-')){skipped++;continue}if(!date){unknown++;continue}
     if(state.docs.some(d=>d.path===name&&d.group===inferGroup(name)&&d.date===date)){skipped++;continue}const id=uid(),blob=await z.async('blob');await putMedia(id,blob);
-    state.docs.push({id,sourceId:id,name:name.split('/').pop(),path:name,group:inferGroup(name),date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:e==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
+    state.docs.push({id,sourceId:id,name:name.split('/').pop(),path:name,group:uploadGroup||inferGroup(name),date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:e==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
    }
   }else{
    const date=inferDate(f.name);if(date&&!date.startsWith('2026-')){skipped++;continue}if(!date){unknown++;continue}
    if(state.docs.some(d=>d.path===f.name&&d.date===date)){skipped++;continue}const id=uid();await putMedia(id,f);
-   state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:inferGroup(f.name),date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
+   state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:uploadGroup||inferGroup(f.name),date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
   }
  }
- save();render();modal('docsModal',false);$('docFiles').value='';$('docFileList').innerHTML='';
+ save();render();modal('docsModal',false);$('docFiles').value='';$('uploadGroup').value='';$('docFileList').innerHTML='';
  alert(accepted+' espelho(s) adicionados.'+(skipped?' '+skipped+' arquivo(s) fora de 2026 ignorados.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável ignorados.':''));
 };
 
@@ -310,7 +316,7 @@ function render(){
 }
 async function fillDoc(){
  const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return;
- $('editBenef').value=d.benef||'';$('editValue').value=d.value??'';$('editDate').value=d.date||'';$('editObs').value=d.obs||'';
+ $('editGroup').value=[...$('editGroup').options].some(o=>o.value===d.group)?d.group:'SEM GRUPO';$('editBenef').value=d.benef||'';$('editValue').value=d.value??'';$('editDate').value=d.date||'';$('editObs').value=d.obs||'';
  const blob=await getMedia(d.sourceId||d.id),p=$('docPreview');
  if(blob&&d.kind!=='pdf')p.innerHTML='<img src="'+URL.createObjectURL(blob)+'" alt="Espelho selecionado">';
  else p.innerHTML='<span class="muted">'+(d.kind==='pdf'?'PDF carregado · mantido como evidência.':'Imagem não localizada no armazenamento deste navegador.')+'</span>';
