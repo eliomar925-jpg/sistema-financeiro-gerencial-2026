@@ -95,8 +95,14 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 <div class="card"><div class="lab">TOTAL DO LOTE</div><div class="val" id="lotTarget">R$ 0,00</div></div>
 <div class="card"><div class="lab">SELECIONADO NO BANCO</div><div class="val" id="lotSelected">R$ 0,00</div></div>
 <div class="card"><div class="lab">DIFERENÇA</div><div class="val" id="lotDiff">R$ 0,00</div></div>
-<div class="card"><div class="lab">LANÇAMENTOS</div><div class="val" id="lotCount">0</div></div>
+<div class="card"><div class="lab">LANÇAMENTOS SELECIONADOS</div><div class="val" id="lotCount">0</div></div>
 </div>
+<div class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:10px">
+  <div class="card"><div class="lab">DÉBITOS DISPONÍVEIS ±1 DIA</div><div class="val" id="lotAvailable">R$ 0,00</div></div>
+  <div class="card"><div class="lab">COBERTURA DO LOTE</div><div class="val" id="lotCoverage">0%</div></div>
+  <div class="card"><div class="lab">FALTA NO EXTRATO CARREGADO</div><div class="val red" id="lotMissing">R$ 0,00</div></div>
+</div>
+<div id="lotDiagnosis" class="muted" style="margin:10px 0"></div>
 <div class="toolbar">
   <button class="smallBtn" id="suggestLotBtn">Sugerir composição</button>
   <button class="smallBtn" id="clearLotSelectionBtn">Limpar seleção</button>
@@ -236,6 +242,11 @@ function matchScore(d,b){if(!d||!d.value||b.value>=0)return 0;const diff=Math.ab
 function isLotDoc(d){const t=norm((d?.benef||'')+' '+(d?.name||'')+' '+(d?.obs||''));return /\bFOLHA\b|LOTE|PRESTADORES DE SERVICO|CELETISTAS/.test(t)}
 function selectedLotBanks(){return (state.selectedBanks||[]).map(id=>state.banks.find(b=>b.id===id)).filter(Boolean)}
 function lotSelectionTotal(){return selectedLotBanks().reduce((s,b)=>s+Math.abs(b.value),0)}
+function lotCoverage(d){
+ const banks=state.banks.filter(b=>b.value<0&&(!b.matchedDoc||b.matchedDoc===d.id)&&dateDiff(d.date,b.date)<=1);
+ const available=banks.reduce((s,b)=>s+Math.abs(b.value),0),target=Math.abs(d?.value||0),missing=Math.max(0,target-available);
+ return{banks,available,target,missing,pct:target?Math.min(100,available/target*100):0}
+}
 function suggestLotComposition(d){
  if(!d||!isLotDoc(d)||!d.value)return [];
  const target=Math.round(Math.abs(d.value)*100);
@@ -292,6 +303,8 @@ async function fillDoc(){
  if(lot){
  const bs=selectedLotBanks(),s=bs.reduce((x,b)=>x+Math.abs(b.value),0),diff=Math.abs(d.value||0)-s;
  $('lotTarget').textContent=money(Math.abs(d.value||0));$('lotSelected').textContent=money(s);$('lotDiff').textContent=money(diff);$('lotDiff').className='val '+(Math.abs(diff)<.01?'green':'red');$('lotCount').textContent=bs.length;
+ const cov=lotCoverage(d);$('lotAvailable').textContent=money(cov.available);$('lotCoverage').textContent=cov.pct.toFixed(1).replace('.',',')+'%';$('lotMissing').textContent=money(cov.missing);
+ $('lotDiagnosis').innerHTML=cov.available+0.009<cov.target?'<span class="pill err">EXTRATO INSUFICIENTE</span> Os débitos bancários carregados no período não alcançam o total deste lote. Carregue os extratos/contas faltantes antes de procurar uma composição.':'<span class="pill ok">COBERTURA SUFICIENTE</span> Há valor bancário disponível suficiente para testar a composição do lote.';
  $('lotSelectedBody').innerHTML=bs.length?bs.map(b=>'<tr><td>'+b.date+'</td><td>'+b.agencia+' / '+b.conta+'</td><td>'+(b.razao||b.lanc)+'</td><td>'+money(Math.abs(b.value))+'</td></tr>').join(''):'<tr><td colspan="4" class="muted">Nenhum lançamento selecionado.</td></tr>';
 }
 }
@@ -312,7 +325,7 @@ $('ocrBtn').onclick=async()=>{const d=state.docs.find(x=>x.id===state.selectedDo
 $('batchOcrBtn').onclick=async()=>{const candidates=currentDocs().filter(d=>d.kind!=='pdf'&&!d.ocrDone&&!d.itemNo),sources=[];const seen=new Set();for(const d of candidates){const s=d.sourceId||d.id;if(!seen.has(s)){seen.add(s);sources.push(d)}}if(!sources.length)return alert('Não há imagens novas no filtro atual para processar.');$('batchOcrBtn').disabled=true;let files=0,pays=0;try{for(const d of sources){$('batchOcrBtn').textContent='Lendo '+(files+1)+'/'+sources.length;pays+=await processSourceOcr(d,true);files++;render()}alert(files+' arquivo(s) processado(s). '+pays+' pagamento(s) identificado(s). As sugestões de banco já foram calculadas na Revisão automática.')}finally{$('batchOcrBtn').disabled=false;$('batchOcrBtn').textContent='Ler lote visível';render()}};
 
 $('saveDocEdit').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');d.benef=$('editBenef').value.trim();d.value=$('editValue').value?Number($('editValue').value):null;d.date=$('editDate').value;d.obs=$('editObs').value.trim();save();render()};
-$('suggestLotBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!isLotDoc(d))return alert('Selecione um lote.');const comp=suggestLotComposition(d);if(!comp.length)return alert('Nenhuma composição exata foi encontrada entre os lançamentos bancários disponíveis da mesma data ou do dia seguinte/anterior.');state.selectedBanks=comp.map(b=>b.id);render();fillDoc();alert('Composição exata encontrada com '+comp.length+' lançamento(s). Revise os favorecidos antes de conciliar.');};
+$('suggestLotBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!isLotDoc(d))return alert('Selecione um lote.');const comp=suggestLotComposition(d);if(!comp.length){const cov=lotCoverage(d);if(cov.available+0.009<cov.target)return alert('Extrato insuficiente para este lote. Total do lote: '+money(cov.target)+'. Débitos disponíveis no período: '+money(cov.available)+'. Ainda faltam '+money(cov.missing)+' em lançamentos bancários carregados.');return alert('Há cobertura bancária suficiente, mas nenhuma combinação exata foi encontrada. Revise data, conta e lançamentos do lote.');}state.selectedBanks=comp.map(b=>b.id);render();fillDoc();alert('Composição exata encontrada com '+comp.length+' lançamento(s). Revise os favorecidos antes de conciliar.');};
 $('clearLotSelectionBtn').onclick=()=>{state.selectedBanks=[];render();fillDoc();};
 $('reconcileLotBtn').onclick=()=>{
  const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!isLotDoc(d))return alert('Selecione um lote.');
