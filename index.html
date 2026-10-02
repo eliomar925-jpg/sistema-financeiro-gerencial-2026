@@ -179,8 +179,12 @@ const $=id=>document.getElementById(id);
 const norm=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
 const money=n=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(n)||0);
 const isoDate=d=>{if(!d)return'';if(d instanceof Date)return d.toISOString().slice(0,10);const s=String(d);const m=s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);return m?m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'):s.slice(0,10)};
-const inferDate=name=>{const s=String(name);let m=s.match(/(?:^|\D)(\d{2})(\d{2})(20\d{2})(?:\D|$)/);if(m)return m[3]+'-'+m[2]+'-'+m[1];m=s.match(/(?:^|\D)(\d{2})(\d{2})(?:\D|$)/);if(m)return '2026-'+m[2]+'-'+m[1];return''};
-const inferGroup=path=>{const p=String(path).replace(/\\/g,'/').split('/').filter(Boolean);return p.length>1?p[p.length-2].replaceAll('_',' '):'SEM GRUPO'};
+const inferDate=name=>{const s=String(name);
+ let m=s.match(/(?:^|\D)(20\d{2})[-_.](\d{1,2})[-_.](\d{1,2})(?:\D|$)/);if(m)return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+ m=s.match(/(?:^|\D)(\d{1,2})[-_.](\d{1,2})[-_.](20\d{2})(?:\D|$)/);if(m)return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+ m=s.match(/(?:^|\D)(\d{2})(\d{2})(20\d{2})(?:\D|$)/);if(m)return m[3]+'-'+m[2]+'-'+m[1];
+ m=s.match(/(?:^|\D)(\d{2})(\d{2})(?:\D|$)/);if(m)return '2026-'+m[2]+'-'+m[1];return''};
+const inferGroup=path=>{const raw=String(path),p=raw.replace(/\\/g,'/').split('/').filter(Boolean);if(p.length>1)return p[p.length-2].replaceAll('_',' ');const n=norm(raw);if(n.includes('EVENTOS'))return'EVENTOS';if(/(?:^|\W)LS(?:\W|$)|LEO SANTANA/.test(n))return'LS';if(n.includes('ESCRITORIO')||n.includes('WET'))return'ESCRITORIO';if(n.includes('DIZZON'))return'DIZZON';if(n.includes('KART LOVE'))return'KART LOVE';if(n.includes('VINA CALMON'))return'VINA CALMON';return'SEM GRUPO'};
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 let mediaDbPromise=null;
 function mediaDb(){if(mediaDbPromise)return mediaDbPromise;mediaDbPromise=new Promise((resolve,reject)=>{const q=indexedDB.open('ConciliacaoDiariaPagamentos',1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains('media'))q.result.createObjectStore('media')};q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)});return mediaDbPromise}
@@ -211,7 +215,7 @@ $('processDocs').onclick=async()=>{
   }else{
    const date=inferDate(f.name);if(date&&!date.startsWith('2026-')){skipped++;continue}if(!date){unknown++;continue}
    if(state.docs.some(d=>d.path===f.name&&d.date===date)){skipped++;continue}const id=uid();await putMedia(id,f);
-   state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:'SEM GRUPO',date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
+   state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:inferGroup(f.name),date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
   }
  }
  save();render();modal('docsModal',false);$('docFiles').value='';$('docFileList').innerHTML='';
