@@ -55,6 +55,23 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
   </div>
 
   <div class="panel">
+    <div class="paneHead" style="padding:0 0 10px;border:0">
+      <div><h2 style="margin:0">Conferência bidirecional</h2><div class="muted">Validação para responder: o que estava no espelho foi encontrado no banco e o que saiu do banco possui espelho?</div></div>
+      <button class="smallBtn" id="exportDiagBtn">Exportar diagnóstico</button>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(4,1fr)">
+      <div class="card"><div class="lab">SAÍDAS BANCÁRIAS</div><div class="val" id="kBankDebits">0</div><div class="muted">débitos do mês/período</div></div>
+      <div class="card"><div class="lab">BANCO CONCILIADO</div><div class="val green" id="kBankMatched">0</div><div class="muted" id="kBankMatchedSub">0% das saídas</div></div>
+      <div class="card"><div class="lab">BANCO SEM ESPELHO</div><div class="val red" id="kBankNoDoc">0</div><div class="muted">saídas ainda sem vínculo</div></div>
+      <div class="card"><div class="lab">ESPELHO SEM BANCO</div><div class="val red" id="kDocNoBank">0</div><div class="muted">pagamentos sem evidência bancária</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+      <div style="max-height:220px;overflow:auto"><table><thead><tr><th colspan="4">Banco sem espelho</th></tr><tr><th>Data</th><th>Conta</th><th>Histórico</th><th>Valor</th></tr></thead><tbody id="bankNoDocBody"></tbody></table></div>
+      <div style="max-height:220px;overflow:auto"><table><thead><tr><th colspan="4">Espelho sem banco</th></tr><tr><th>Data</th><th>Grupo</th><th>Pagamento</th><th>Valor</th></tr></thead><tbody id="docNoBankBody"></tbody></table></div>
+    </div>
+  </div>
+
+  <div class="panel">
     <h2>Fluxo operacional</h2>
     <p class="muted"><b>Espelho recebido</b> → leitura → <b>pagamento identificado</b> → conciliação → <b>conciliado</b>, <b>pendente</b>, <b>divergência</b> ou <b>aguardando extrato</b>.</p>
   </div>
@@ -303,6 +320,18 @@ function updatePeriodUI(){
 function currentDocs(){const mo=selectedMonth(),dt=$('filterDate').value;return state.docs.filter(d=>d.date&&d.date.startsWith(mo)&&(!dt||d.date===dt)&&(!$('filterGroup').value||d.group===$('filterGroup').value)&&(!$('filterStatus').value||d.status===$('filterStatus').value))}
 function currentBanks(){const mo=selectedMonth(),dt=$('filterDate').value,d=state.docs.find(x=>x.id===state.selectedDoc),lot=isLotDoc(d);return state.banks.filter(b=>b.date&&b.date.startsWith(mo)&&(!dt||b.date===dt)).map(b=>({b,s:lot?0:((!b.matchedDoc||b.matchedDoc===d?.id)?matchScore(d,b):0)})).sort((x,y)=>y.s-x.s||String(y.b.date).localeCompare(String(x.b.date)))}
 function statusPill(s){return '<span class="pill '+(s==='CONCILIADO'?'ok':s==='DIVERGÊNCIA'?'err':'warn')+'">'+s+'</span>'}
+function periodBanksRaw(){const mo=selectedMonth(),dt=$('filterDate').value;return state.banks.filter(b=>b.date&&b.date.startsWith(mo)&&(!dt||b.date===dt))}
+function periodDocsIdentified(){const mo=selectedMonth(),dt=$('filterDate').value;return state.docs.filter(d=>d.date&&d.date.startsWith(mo)&&(!dt||d.date===dt)&&(d.itemNo||d.value))}
+function hasBankEvidence(d){
+ if(d.status==='CONCILIADO'||d.bankId||(d.bankIds&&d.bankIds.length))return true;
+ if(isLotDoc(d)){const comp=suggestLotComposition(d);if(comp.length)return true}
+ return !!bestBankFor(d);
+}
+function bidirectionalDiagnosis(){
+ const debits=periodBanksRaw().filter(b=>b.value<0),matched=debits.filter(b=>!!b.matchedDoc),bankNoDoc=debits.filter(b=>!b.matchedDoc);
+ const docs=periodDocsIdentified(),docNoBank=docs.filter(d=>d.status!=='CONCILIADO'&&!hasBankEvidence(d));
+ return{debits,matched,bankNoDoc,docs,docNoBank};
+}
 function render(){
  updatePeriodUI();
  const groups=[...new Set(state.docs.map(d=>d.group))].sort();const cur=$('filterGroup').value;$('filterGroup').innerHTML='<option value="">Todos os grupos</option>'+groups.map(g=>'<option '+(g===cur?'selected':'')+'>'+g+'</option>').join('');
@@ -312,6 +341,9 @@ function render(){
  document.querySelectorAll('[data-doc]').forEach(r=>r.onclick=()=>{if(state.selectedDoc!==r.dataset.doc)state.selectedBanks=[];state.selectedDoc=r.dataset.doc;state.selectedBank=null;render();fillDoc()});document.querySelectorAll('[data-bank]').forEach(r=>r.onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc),id=r.dataset.bank;if(isLotDoc(d)){const b=state.banks.find(x=>x.id===id);if(!b||b.value>=0||(b.matchedDoc&&b.matchedDoc!==d.id))return;state.selectedBanks=state.selectedBanks||[];state.selectedBanks=state.selectedBanks.includes(id)?state.selectedBanks.filter(x=>x!==id):[...state.selectedBanks,id];state.selectedBank=null}else{state.selectedBank=id;state.selectedBanks=[]}render();selectionText();fillDoc()});
  const mo=selectedMonth(),all=state.docs.filter(x=>x.date&&x.date.startsWith(mo)),files=new Set(all.map(x=>x.sourceId||x.id)),identified=all.filter(x=>x.itemNo||x.value),unreadSources=new Set(all.filter(x=>!x.itemNo&&!x.value&&!x.ocrDone).map(x=>x.sourceId||x.id)),readNoPaymentSources=new Set(all.filter(x=>!x.itemNo&&!x.value&&x.ocrDone).map(x=>x.sourceId||x.id)),ok=identified.filter(x=>x.status==='CONCILIADO').length,pend=identified.filter(x=>x.status==='PENDENTE').length,div=identified.filter(x=>x.status==='DIVERGÊNCIA').length,awaiting=identified.filter(x=>x.status==='AGUARDANDO EXTRATO').length;
  $('kFiles').textContent=files.size;$('kFilesSub').textContent=unreadSources.size+' aguardando leitura'+(readNoPaymentSources.size?' · '+readNoPaymentSources.size+' lido(s) sem pagamento identificado':'');$('kDocs').textContent=identified.length;$('kOk').textContent=ok;$('kOkSub').textContent=(identified.length?Math.round(ok/identified.length*100):0)+'% dos identificados';$('kPend').textContent=pend;$('kDiv').textContent=div;$('kAwait').textContent=awaiting;
+ const bd=bidirectionalDiagnosis();$('kBankDebits').textContent=bd.debits.length;$('kBankMatched').textContent=bd.matched.length;$('kBankMatchedSub').textContent=(bd.debits.length?Math.round(bd.matched.length/bd.debits.length*100):0)+'% das saídas';$('kBankNoDoc').textContent=bd.bankNoDoc.length;$('kDocNoBank').textContent=bd.docNoBank.length;
+ $('bankNoDocBody').innerHTML=bd.bankNoDoc.length?bd.bankNoDoc.map(b=>'<tr><td>'+b.date+'</td><td>'+b.agencia+' / '+b.conta+'</td><td>'+(b.razao||b.lanc)+'</td><td>'+money(Math.abs(b.value))+'</td></tr>').join(''):'<tr><td colspan="4" class="muted">Nenhuma saída bancária sem espelho.</td></tr>';
+ $('docNoBankBody').innerHTML=bd.docNoBank.length?bd.docNoBank.map(d=>'<tr><td>'+d.date+'</td><td>'+d.group+'</td><td>'+d.name+(d.itemNo?' · item '+d.itemNo:'')+'</td><td>'+money(Math.abs(d.value||0))+'</td></tr>').join(''):'<tr><td colspan="4" class="muted">Nenhum pagamento identificado sem evidência bancária.</td></tr>';
  $('pendingBody').innerHTML=identified.filter(x=>x.status!=='CONCILIADO').map(x=>'<tr><td>'+x.date+'</td><td>'+x.group+'</td><td>'+x.name+'</td><td>'+(x.status==='DIVERGÊNCIA'?(x.obs||'Divergência marcada'):x.status==='AGUARDANDO EXTRATO'?(x.obs||'Aguardando extrato/conta de origem'):isLotDoc(x)?'Montar composição dos lançamentos bancários':'Aguardando lançamento bancário correspondente')+'</td></tr>').join('');
  const rr=reviewRows(),strong=rr.filter(x=>x.m&&x.m.s>=95&&!x.conflict).length,possible=rr.filter(x=>x.m&&x.m.s>=80&&x.m.s<95&&!x.conflict).length,noMatch=rr.filter(x=>!x.m||x.m.s<80||x.conflict).length,unread=new Set(docs.filter(x=>!x.itemNo&&!x.value&&!x.ocrDone).map(x=>x.sourceId||x.id)).size;
  $('kStrong').textContent=strong;$('kPossible').textContent=possible;$('kNoMatch').textContent=noMatch;$('kUnread').textContent=unread;
@@ -373,6 +405,7 @@ $('clearBanksBtn').onclick=()=>{if(!confirm('Limpar todos os extratos bancários
 $('clearAllBtn').onclick=async()=>{if(!confirm('Limpar TODO o trabalho de 2026 e recomeçar?'))return;await clearAllMedia();state.docs=[];state.banks=[];state.selectedDoc=null;state.selectedBank=null;localStorage.removeItem('conciliacao_diaria_v2');save();render();modal('clearModal',false);$('docPreview').innerHTML='<span class="muted">A prévia do espelho aparece aqui.</span>';alert('Trabalho limpo. Agora você pode carregar novamente os arquivos desejados.');};
 $('confirmStrongBtn').onclick=()=>{const rr=reviewRows(),strong=rr.filter(x=>!isLotDoc(x.d)&&x.m&&x.m.s>=95&&!x.conflict&&x.d.status!=='CONCILIADO'&&!x.m.b.matchedDoc);if(!strong.length)return alert('Não há matches fortes e exclusivos para confirmar.');if(!confirm('Confirmar '+strong.length+' match(es) forte(s)? Critério: mesmo valor, mesma data, compatibilidade de beneficiário e sem conflito de lançamento bancário.'))return;for(const x of strong){x.d.status='CONCILIADO';x.d.bankId=x.m.b.id;x.d.obs=x.d.obs||'Conciliação confirmada em lote · match forte';x.m.b.matchedDoc=x.d.id}save();render();alert(strong.length+' pagamento(s) conciliado(s). Os possíveis e conflitos permaneceram para revisão manual.');};
 $('reviewBtn').onclick=()=>{render();const rr=reviewRows(),fortes=rr.filter(x=>x.m&&x.m.s>=95&&!x.conflict).length,possiveis=rr.filter(x=>x.m&&x.m.s>=80&&x.m.s<95&&!x.conflict).length,sem=rr.filter(x=>!x.m||x.m.s<80||x.conflict).length;alert('Análise concluída: '+fortes+' match(es) forte(s), '+possiveis+' possível(is) e '+sem+' sem correspondência segura. Nenhum pagamento foi conciliado automaticamente.');};
+$('exportDiagBtn').onclick=()=>{const bd=bidirectionalDiagnosis(),rows=[['TIPO','DATA','GRUPO/CONTA','DESCRICAO','VALOR']];for(const b of bd.bankNoDoc)rows.push(['BANCO SEM ESPELHO',b.date,b.agencia+' / '+b.conta,b.razao||b.lanc,Math.abs(b.value)]);for(const d of bd.docNoBank)rows.push(['ESPELHO SEM BANCO',d.date,d.group,d.name+(d.itemNo?' item '+d.itemNo:''),Math.abs(d.value||0)]);const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n'),blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='diagnostico-conciliacao-'+selectedMonth()+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
 document.querySelectorAll('[data-kpi]').forEach(card=>card.onclick=()=>{const k=card.dataset.kpi;if(k==='files'){ $('filterStatus').value=''; }else if(k==='identified'){ $('filterStatus').value=''; }else{ $('filterStatus').value=k; } render();document.querySelector('.workspace').scrollIntoView({behavior:'smooth',block:'start'});});
 $('filterMonth').onchange=()=>{$('filterDate').value='';state.selectedDoc=null;state.selectedBank=null;state.selectedBanks=[];render()};['filterDate','filterGroup','filterStatus'].forEach(id=>$(id).onchange=render);$('clearFilters').onclick=()=>{$('filterDate').value='';$('filterGroup').value='';$('filterStatus').value='';render()};$('todayBtn').onclick=()=>{const d=new Date().toISOString().slice(0,10);if(d.startsWith('2026-')){$('filterMonth').value=d.slice(0,7);$('filterDate').value=d}else{$('filterDate').value=''}render()};
 load();render();
