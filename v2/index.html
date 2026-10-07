@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sistema Financeiro 2026 · V2</title>
+<style>
+:root{--nav:#10263a;--nav2:#173a52;--petrol:#176b68;--bg:#f4f7f8;--card:#fff;--line:#dce4e8;--text:#162630;--muted:#6d7c85;--ok:#16836f;--warn:#b57b12;--bad:#c64f58}
+*{box-sizing:border-box}body{margin:0;font:14px system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
+.app{display:grid;grid-template-columns:250px 1fr;min-height:100vh}.side{background:var(--nav);color:#fff;padding:24px 16px}.brand{font-weight:900;font-size:21px;margin:0 8px 24px}.brand small{display:block;color:#9fb5c3;font-size:11px;margin-top:5px;font-weight:600}
+.nav button{width:100%;text-align:left;border:0;background:transparent;color:#c9d5dd;padding:11px 12px;border-radius:8px;margin:3px 0;cursor:pointer}.nav button.active,.nav button:hover{background:var(--nav2);color:#fff}.main{padding:24px 28px}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:18px}.top h1{font-size:24px;margin:0}.muted{color:var(--muted)}.filters{display:flex;gap:8px;flex-wrap:wrap}.filters select,.filters input{border:1px solid var(--line);background:#fff;padding:9px 10px;border-radius:7px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card,.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 5px 18px #00000008}.card{padding:16px}.lab{font-size:10px;font-weight:900;letter-spacing:.08em;color:var(--muted)}.val{font-size:25px;font-weight:900;margin-top:7px}.panel{padding:18px;margin-top:14px}.panel h2{margin:0 0 5px}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.pill{display:inline-block;border-radius:99px;padding:4px 8px;background:#edf3f5;font-size:10px;font-weight:800}.pill.ok{background:#e6f4ef}.pill.warn{background:#fff2d8}.pill.bad{background:#fdebed}
+table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left}th{font-size:11px;color:var(--muted);background:#f8fafb}.page{display:none}.page.active{display:block}.moduleIntro{padding:16px;border-left:4px solid var(--petrol);background:#fff;border-radius:8px;margin-bottom:14px}.accessGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.btn{border:0;border-radius:7px;background:var(--petrol);color:#fff;padding:9px 12px;font-weight:800;cursor:pointer}.ghost{background:#fff;color:var(--text);border:1px solid var(--line)}
+@media(max-width:1000px){.app{grid-template-columns:1fr}.side{position:relative}.nav{display:flex;overflow:auto}.nav button{min-width:170px}.grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){.main{padding:16px}.grid,.accessGrid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="side">
+  <div class="brand">Sistema Financeiro 2026<small>Arquitetura V2 · Salvador Produções + Sofá</small></div>
+  <nav class="nav">
+    <button class="active" data-page="geral">Visão Geral</button>
+    <button data-page="pagamentos">Pagamentos / Conciliação</button>
+    <button data-page="caixa">Bancos & Caixa</button>
+    <button data-page="dre">DRE</button>
+    <button data-page="ponte">Resultado × Caixa</button>
+    <button data-page="auditoria">Auditoria / Exceções</button>
+    <button data-page="acessos">Acessos & Compartilhamentos</button>
+  </nav>
+</aside>
+<main class="main">
+  <header class="top">
+    <div><h1 id="pageTitle">Visão Geral</h1><div class="muted">Um lançamento · várias visões · sem duplicidade</div></div>
+    <div class="filters"><select><option>2026</option></select><select><option>Todos os meses</option><option>Janeiro</option><option>Fevereiro</option><option>Março</option><option>Abril</option><option>Maio</option><option>Junho</option><option>Julho</option><option>Agosto</option><option>Setembro</option><option>Outubro</option></select><select><option>Todas as empresas</option><option>Salvador Produções</option><option>Sofá da Sogra</option></select></div>
+  </header>
+
+  <section id="geral" class="page active">
+    <div class="moduleIntro"><b>Visão executiva.</b> Resultado econômico, caixa, conciliação e exceções no mesmo período, sem misturar os conceitos.</div>
+    <div class="grid">
+      <div class="card"><div class="lab">RESULTADO ECONÔMICO</div><div class="val">—</div><div class="muted">Receita − Despesa</div></div>
+      <div class="card"><div class="lab">CAIXA LÍQUIDO</div><div class="val">—</div><div class="muted">Entradas − Saídas</div></div>
+      <div class="card"><div class="lab">CONCILIAÇÃO</div><div class="val">—</div><div class="muted">% dos pagamentos identificados</div></div>
+      <div class="card"><div class="lab">EXCEÇÕES ABERTAS</div><div class="val warn">—</div><div class="muted">Itens que impedem fechamento</div></div>
+    </div>
+    <div class="panel"><h2>Abertura por empresa × centro</h2><div class="muted">A futura tabela usará o mesmo lançamento para DRE e Caixa, preservando competência e data financeira.</div>
+      <table><thead><tr><th>Empresa</th><th>Centro</th><th>Receita</th><th>Despesa</th><th>Resultado</th><th>Entradas</th><th>Saídas</th><th>Caixa líquido</th></tr></thead><tbody><tr><td colspan="8" class="muted">Aguardando integração com o modelo V2.</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <section id="pagamentos" class="page">
+    <div class="moduleIntro"><b>Conciliação bidirecional.</b> O sistema precisa explicar o que estava no espelho e não apareceu no banco — e também o que saiu no banco sem espelho localizado.</div>
+    <div class="grid">
+      <div class="card"><div class="lab">ESPELHOS RECEBIDOS</div><div class="val">—</div></div>
+      <div class="card"><div class="lab">PAGAMENTOS IDENTIFICADOS</div><div class="val">—</div></div>
+      <div class="card"><div class="lab">CONCILIADOS</div><div class="val ok">—</div></div>
+      <div class="card"><div class="lab">PENDENTES</div><div class="val warn">—</div></div>
+      <div class="card"><div class="lab">DIVERGÊNCIAS</div><div class="val bad">—</div></div>
+      <div class="card"><div class="lab">AGUARDANDO EXTRATO</div><div class="val warn">—</div></div>
+      <div class="card"><div class="lab">BANCO SEM ESPELHO</div><div class="val bad">—</div></div>
+      <div class="card"><div class="lab">ESPELHO SEM BANCO</div><div class="val bad">—</div></div>
+    </div>
+  </section>
+
+  <section id="caixa" class="page">
+    <div class="moduleIntro"><b>Bancos & Caixa.</b> Cada movimento bancário recebe natureza financeira antes de qualquer interpretação econômica.</div>
+    <div class="grid">
+      <div class="card"><div class="lab">ENTRADAS</div><div class="val">—</div></div>
+      <div class="card"><div class="lab">SAÍDAS</div><div class="val">—</div></div>
+      <div class="card"><div class="lab">CAIXA LÍQUIDO</div><div class="val">—</div></div>
+      <div class="card"><div class="lab">NÃO CLASSIFICADOS</div><div class="val warn">—</div></div>
+    </div>
+    <div class="panel"><h2>Natureza financeira</h2><p class="muted">Operacional · Transferência · Mútuo · Aporte · Aplicação · Resgate · Tarifa · Estorno · Outros.</p></div>
+  </section>
+
+  <section id="dre" class="page">
+    <div class="moduleIntro"><b>DRE por competência.</b> Receita, despesa, resultado e margem por Empresa → Centro → Evento/Banda → Natureza → Lançamento.</div>
+    <div class="grid"><div class="card"><div class="lab">RECEITA</div><div class="val">—</div></div><div class="card"><div class="lab">DESPESA</div><div class="val">—</div></div><div class="card"><div class="lab">RESULTADO</div><div class="val">—</div></div><div class="card"><div class="lab">MARGEM</div><div class="val">—</div></div></div>
+  </section>
+
+  <section id="ponte" class="page">
+    <div class="moduleIntro"><b>Ponte Resultado → Caixa.</b> Explica, e não apenas exibe, por que o resultado econômico difere do caixa líquido.</div>
+    <div class="panel"><table><thead><tr><th>Componente</th><th>Valor</th></tr></thead><tbody>
+      <tr><td>Resultado econômico</td><td>—</td></tr><tr><td>Competências anteriores</td><td>—</td></tr><tr><td>Contas a receber/pagar</td><td>—</td></tr><tr><td>Transferências</td><td>—</td></tr><tr><td>Mútuos / aportes</td><td>—</td></tr><tr><td>Aplicações / resgates</td><td>—</td></tr><tr><td>Outros movimentos</td><td>—</td></tr><tr><td><b>Caixa líquido</b></td><td><b>—</b></td></tr>
+    </tbody></table></div>
+  </section>
+
+  <section id="auditoria" class="page">
+    <div class="moduleIntro"><b>Central de exceções.</b> Tudo que ainda impede um fechamento confiável deve aparecer aqui.</div>
+    <div class="grid"><div class="card"><div class="lab">BANCO SEM ESPELHO</div><div class="val">—</div></div><div class="card"><div class="lab">ESPELHO SEM BANCO</div><div class="val">—</div></div><div class="card"><div class="lab">DUPLICIDADES</div><div class="val">—</div></div><div class="card"><div class="lab">NÃO CLASSIFICADOS</div><div class="val">—</div></div></div>
+  </section>
+
+  <section id="acessos" class="page">
+    <div class="moduleIntro"><b>Acessos personalizados.</b> O administrador escolhe exatamente o que cada pessoa pode visualizar. Usuários finais ficam em somente leitura.</div>
+    <div class="accessGrid">
+      <div class="panel" style="margin-top:0"><h2>Novo acesso</h2><p class="muted">Nome, celular, módulos, empresas, centros, período, validade e acompanhamento contínuo.</p><button class="btn">Criar convite</button></div>
+      <div class="panel" style="margin-top:0"><h2>Compartilhamento</h2><p class="muted">Convite individual por link ou QR Code. Revogável e alterável pelo administrador.</p><button class="btn ghost">Ver acessos ativos</button></div>
+    </div>
+  </section>
+</main>
+</div>
+<script>
+const titles={geral:'Visão Geral',pagamentos:'Pagamentos / Conciliação',caixa:'Bancos & Caixa',dre:'DRE',ponte:'Resultado × Caixa',auditoria:'Auditoria / Exceções',acessos:'Acessos & Compartilhamentos'};
+document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));document.getElementById(b.dataset.page).classList.add('active');document.getElementById('pageTitle').textContent=titles[b.dataset.page]});
+</script>
+</body>
+</html>
