@@ -12,13 +12,14 @@ function textItems(pageContent){
 function nearby(items,y,min,max){return items.filter(x=>x.x>=85&&x.x<249&&x.y-y>=min&&x.y-y<=max).map(x=>x.t).join(" ").trim()}
 async function parseBankPdf(file){
  if(!window.pdfjsLib)throw Error("Biblioteca de leitura PDF indisponível. Recarregue a página e tente novamente.");
+ pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
  const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
- let agencia="",conta="",empresa="",date="",rows=[],sawBradesco=false,sawStatement=false;
+ const metadata=await pdf.getMetadata().catch(()=>null);
+ let agencia="",conta="",empresa="",date="",rows=[],sawBradesco=/BRADESCO/i.test(metadata?.info?.Title||""),sawStatement=false;
  for(let pageNo=1;pageNo<=pdf.numPages;pageNo++){
   const page=await pdf.getPage(pageNo),items=textItems(await page.getTextContent());
-  const header=items.filter(x=>x.y<0||x.y>-190).slice(0,140).map(x=>x.t).join(" ");
   const allHeader=items.slice(0,100).map(x=>x.t).join(" ");
-  if(/BRADESCO/i.test(allHeader))sawBradesco=true;
+  if(items.some(x=>/BRADESCO/i.test(x.t)))sawBradesco=true;
   if(/EXTRATO\s+(MENSAL|DE:|POR PER[IÍ]ODO)/i.test(allHeader))sawStatement=true;
   const accountText=items.filter(x=>x.y< -600).map(x=>x.t).join(" ");
   const match=(allHeader+" "+accountText).match(/Extrato de:\s*Ag:\s*(\d+)\s*\|\s*CC:\s*([\d-]+)/i);
