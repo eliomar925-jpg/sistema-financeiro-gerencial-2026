@@ -193,13 +193,16 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 
 <div class="modal" id="banksModal"><div class="modalBox">
   <div class="modalHead"><div><h2>Adicionar extratos bancários</h2><div class="muted">Você pode complementar depois com outros extratos de qualquer mês de 2026. Os lançamentos já carregados permanecem no trabalho.</div></div><button class="close" data-close="banksModal">×</button></div>
-  <div class="drop"><input id="bankFiles" type="file" accept=".xlsx,.xls" multiple></div>
+  <div class="drop"><input id="bankFiles" type="file" accept=".xlsx,.xls,.pdf" multiple></div>
+  <p class="muted" style="margin:8px 0 0">Aceita Excel e PDF textual do Bradesco. O PDF é lido localmente no navegador; lançamentos extraídos devem ser revisados antes de conciliar. PDFs digitalizados ou de outros bancos serão sinalizados sem importação automática.</p>
   <div id="bankFileList"></div>
   <div class="toolbar"><button class="smallBtn primary" id="processBanks">Adicionar extratos</button></div>
 </div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>\n<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="./pdf-bank-parser.js"></script>\n<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
 const state={docs:[],banks:[],selectedDoc:null,selectedBank:null,selectedBanks:[]};const media=new Map();
 const $=id=>document.getElementById(id);
@@ -255,7 +258,36 @@ function parseBank(wb,file){
  const rows=XLSX.utils.sheet_to_json(ws,{range:hr,defval:null,raw:true});for(const r of rows){const lanc=r['Lançamento']??r['LANCAMENTO'];const val=Number(r['Valor (R$)']??r['VALOR']??0);if(!lanc||!val||norm(lanc).includes('SALDO ANTERIOR')||norm(lanc).includes('SALDO APLIC'))continue;out.push({id:uid(),file,empresa,agencia,conta,date:isoDate(r['Data']??r['DATA']),lanc:String(lanc),razao:String(r['Razão Social']??r['RAZAO SOCIAL']??''),doc:String(r['CPF/CNPJ']??''),value:val,matchedDoc:null})}}
  return out
 }
-$('processBanks').onclick=async()=>{let accepted=0,skipped=0,duplicates=0;for(const f of [...$('bankFiles').files]){const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const rows=parseBank(wb,f.name);for(const r of rows){if(!r.date||!r.date.startsWith('2026-')){skipped++;continue}const dup=state.banks.some(b=>b.date===r.date&&b.agencia===r.agencia&&b.conta===r.conta&&b.value===r.value&&b.razao===r.razao&&b.lanc===r.lanc);if(dup){duplicates++;continue}state.banks.push(r);accepted++}}let reopened=0;for(const d of state.docs){if(d.status==='AGUARDANDO EXTRATO'&&isLotDoc(d)){const cov=lotCoverage(d);if(cov.available+0.009>=cov.target){d.status='PENDENTE';d.obs='Novo extrato carregado · revisar composição';reopened++}}}save();render();modal('banksModal',false);$('bankFiles').value='';$('bankFileList').innerHTML='';alert(accepted+' lançamento(s) novo(s) adicionados.'+(reopened?' '+reopened+' lote(s) voltou(aram) para revisão porque agora há cobertura bancária suficiente.':'')+(duplicates?' '+duplicates+' duplicado(s) ignorado(s).':'')+(skipped?' '+skipped+' fora de 2026 ignorado(s).':''))};
+$('processBanks').onclick=async()=>{
+ const btn=$('processBanks');btn.disabled=true;btn.textContent='Lendo extratos…';
+ let accepted=0,skipped=0,duplicates=0,pdfCount=0;const errors=[];
+ try{
+  for(const f of [...$('bankFiles').files]){
+   try{
+    const ext=f.name.split('.').pop().toLowerCase();
+    let rows;
+    if(ext==='pdf'){rows=await window.parseBankPdf(f);pdfCount+=rows.length}
+    else if(['xls','xlsx'].includes(ext)){const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});rows=parseBank(wb,f.name)}
+    else{throw Error('Formato não aceito')}
+    for(const r of rows){
+     if(!r.date||!r.date.startsWith('2026-')){skipped++;continue}
+     const digits=s=>String(s||'').replace(/\D/g,'');
+     const dup=state.banks.some(b=>
+       b.date===r.date&&b.value===r.value&&digits(b.agencia)===digits(r.agencia)&&digits(b.conta)===digits(r.conta)&&
+       ((b.doc&&r.doc&&b.doc===r.doc)||(b.razao===r.razao&&b.lanc===r.lanc))
+     );
+     if(dup){duplicates++;continue}
+     state.banks.push(r);accepted++;
+    }
+   }catch(err){errors.push(f.name+': '+(err?.message||String(err)))}
+  }
+  let reopened=0;
+  for(const d of state.docs){if(d.status==='AGUARDANDO EXTRATO'&&isLotDoc(d)){const cov=lotCoverage(d);if(cov.available+0.009>=cov.target){d.status='PENDENTE';d.obs='Novo extrato carregado · revisar composição';reopened++}}}
+  save();render();
+  if(!errors.length){modal('banksModal',false);$('bankFiles').value='';$('bankFileList').innerHTML=''}
+  alert(accepted+' lançamento(s) novo(s) adicionados.'+(pdfCount?' '+pdfCount+' linha(s) extraída(s) de PDF para revisão.':'')+(reopened?' '+reopened+' lote(s) reaberto(s) para revisão.':'')+(duplicates?' '+duplicates+' duplicado(s) ignorado(s).':'')+(skipped?' '+skipped+' fora de 2026 ignorado(s).':'')+(errors.length?'\nArquivos não importados:\n'+errors.join('\n'):''));
+ }finally{btn.disabled=false;btn.textContent='Adicionar extratos'}
+};
 
 function brNumber(s){s=String(s||'').replace(/R\$/gi,'').replace(/\s/g,'').replace(/\./g,'').replace(',','.').replace(/[^0-9.-]/g,'');return Number(s)||0}
 function parseOcr(text,doc){
@@ -337,7 +369,7 @@ function render(){
  const groups=[...new Set(state.docs.map(d=>d.group))].sort();const cur=$('filterGroup').value;$('filterGroup').innerHTML='<option value="">Todos os grupos</option>'+groups.map(g=>'<option '+(g===cur?'selected':'')+'>'+g+'</option>').join('');
  const docs=currentDocs(),bankRank=currentBanks(),banks=bankRank.map(x=>x.b);const visibleFiles=new Set(docs.map(d=>d.sourceId||d.id));$('docCount').textContent=visibleFiles.size+' arquivo(s) · '+docs.length+' pagamento/item(ns)';$('bankCount').textContent=banks.length+' lançamentos';
  $('docBody').innerHTML=docs.map(d=>'<tr class="row '+(state.selectedDoc===d.id?'sel':'')+'" data-doc="'+d.id+'"><td>'+d.date+'</td><td>'+d.group+'</td><td>'+d.name+(d.itemNo?' <span class="pill">ITEM '+d.itemNo+'</span>':' <span class="pill warn">NÃO LIDO</span>')+'</td><td>'+(d.benef||'—')+'</td><td>'+(d.value?money(d.value):'—')+'</td><td>'+statusPill(d.status)+'</td></tr>').join('');
- $('bankBody').innerHTML=bankRank.map(({b,s})=>{const lot=isLotDoc(state.docs.find(x=>x.id===state.selectedDoc)),multi=(state.selectedBanks||[]).includes(b.id);return '<tr class="row '+((lot?multi:state.selectedBank===b.id)?'sel ':'')+(s&&!b.matchedDoc?'suggest':'')+'" data-bank="'+b.id+'"><td>'+b.date+'</td><td>'+b.agencia+' / '+b.conta+'</td><td>'+(b.razao||b.lanc)+'</td><td class="'+(b.value<0?'red':'green')+'">'+money(b.value)+'</td><td>'+(lot?(multi?'<span class="score">SELECIONADO</span>':'—'):(b.matchedDoc?'—':s?'<span class="score">'+(s>=95?'FORTE':s>=80?'POSSÍVEL':'FRACO')+' · '+s+'</span>':'—'))+'</td><td>'+(b.matchedDoc?'<span class="pill ok">CONCILIADO</span>':'<span class="pill warn">ABERTO</span>')+'</td></tr>'}).join('');
+ $('bankBody').innerHTML=bankRank.map(({b,s})=>{const lot=isLotDoc(state.docs.find(x=>x.id===state.selectedDoc)),multi=(state.selectedBanks||[]).includes(b.id);return '<tr class="row '+((lot?multi:state.selectedBank===b.id)?'sel ':'')+(s&&!b.matchedDoc?'suggest':'')+'" data-bank="'+b.id+'"><td>'+b.date+'</td><td>'+b.agencia+' / '+b.conta+'</td><td>'+(b.razao||b.lanc)+(b.sourceFormat==='PDF'?'<div class="muted">PDF · pág. '+b.pdfPage+' · revisar</div>':'')+'</td><td class="'+(b.value<0?'red':'green')+'">'+money(b.value)+'</td><td>'+(lot?(multi?'<span class="score">SELECIONADO</span>':'—'):(b.matchedDoc?'—':s?'<span class="score">'+(s>=95?'FORTE':s>=80?'POSSÍVEL':'FRACO')+' · '+s+'</span>':'—'))+'</td><td>'+(b.matchedDoc?'<span class="pill ok">CONCILIADO</span>':'<span class="pill warn">ABERTO</span>')+'</td></tr>'}).join('');
  document.querySelectorAll('[data-doc]').forEach(r=>r.onclick=()=>{if(state.selectedDoc!==r.dataset.doc)state.selectedBanks=[];state.selectedDoc=r.dataset.doc;state.selectedBank=null;render();fillDoc()});document.querySelectorAll('[data-bank]').forEach(r=>r.onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc),id=r.dataset.bank;if(isLotDoc(d)){const b=state.banks.find(x=>x.id===id);if(!b||b.value>=0||(b.matchedDoc&&b.matchedDoc!==d.id))return;state.selectedBanks=state.selectedBanks||[];state.selectedBanks=state.selectedBanks.includes(id)?state.selectedBanks.filter(x=>x!==id):[...state.selectedBanks,id];state.selectedBank=null}else{state.selectedBank=id;state.selectedBanks=[]}render();selectionText();fillDoc()});
  const mo=selectedMonth(),all=state.docs.filter(x=>x.date&&x.date.startsWith(mo)),files=new Set(all.map(x=>x.sourceId||x.id)),identified=all.filter(x=>x.itemNo||x.value),unreadSources=new Set(all.filter(x=>!x.itemNo&&!x.value&&!x.ocrDone).map(x=>x.sourceId||x.id)),readNoPaymentSources=new Set(all.filter(x=>!x.itemNo&&!x.value&&x.ocrDone).map(x=>x.sourceId||x.id)),ok=identified.filter(x=>x.status==='CONCILIADO').length,pend=identified.filter(x=>x.status==='PENDENTE').length,div=identified.filter(x=>x.status==='DIVERGÊNCIA').length,awaiting=identified.filter(x=>x.status==='AGUARDANDO EXTRATO').length;
  $('kFiles').textContent=files.size;$('kFilesSub').textContent=unreadSources.size+' aguardando leitura'+(readNoPaymentSources.size?' · '+readNoPaymentSources.size+' lido(s) sem pagamento identificado':'');$('kDocs').textContent=identified.length;$('kOk').textContent=ok;$('kOkSub').textContent=(identified.length?Math.round(ok/identified.length*100):0)+'% dos identificados';$('kPend').textContent=pend;$('kDiv').textContent=div;$('kAwait').textContent=awaiting;
