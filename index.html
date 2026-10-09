@@ -192,9 +192,9 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 </div></div>
 
 <div class="modal" id="banksModal"><div class="modalBox">
-  <div class="modalHead"><div><h2>Adicionar extratos bancários</h2><div class="muted">Você pode complementar depois com outros extratos de qualquer mês de 2026. Os lançamentos já carregados permanecem no trabalho.</div></div><button class="close" data-close="banksModal">×</button></div>
+  <div class="modalHead"><div><h2>Adicionar extratos bancários · Excel ou PDF</h2><div class="muted">Você pode adicionar XLS, XLSX e PDF. Os extratos anteriores continuam disponíveis e os lançamentos do PDF são conferidos antes de entrar na conciliação.</div></div><button class="close" data-close="banksModal">×</button></div>
   <div class="drop"><input id="bankFiles" type="file" accept=".xlsx,.xls,.pdf" multiple></div>
-  <p class="muted" style="margin:8px 0 0">Aceita Excel e PDF textual do Bradesco. O PDF é lido localmente no navegador; lançamentos extraídos devem ser revisados antes de conciliar. PDFs digitalizados ou de outros bancos serão sinalizados sem importação automática.</p>
+  <p class="muted" style="margin:8px 0 0"><b>Formatos:</b> XLS, XLSX e PDF textual do Bradesco. Antes de importar um PDF, o sistema mostrará a quantidade de movimentos, entradas, saídas e conta identificada para sua confirmação. PDFs digitalizados e layouts de outros bancos ainda exigem adaptação; nenhum valor será inventado.</p>
   <div id="bankFileList"></div>
   <div class="toolbar"><button class="smallBtn primary" id="processBanks">Adicionar extratos</button></div>
 </div></div>
@@ -228,7 +228,7 @@ function modal(id,on=true){$(id).classList.toggle('on',on)}
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>modal(b.dataset.close,false));
 $('openDocs').onclick=()=>modal('docsModal');$('openBanks').onclick=()=>modal('banksModal');$('openClear').onclick=()=>modal('clearModal');$('saveWork').onclick=()=>{save();alert('Trabalho salvo neste navegador.')};
 $('docFiles').onchange=()=>{$('docFileList').innerHTML=[...$('docFiles').files].map(f=>'<div class="fileLine">'+f.name+'</div>').join('')};
-$('bankFiles').onchange=()=>{$('bankFileList').innerHTML=[...$('bankFiles').files].map(f=>'<div class="fileLine">'+f.name+'</div>').join('')};
+$('bankFiles').onchange=()=>{$('bankFileList').innerHTML=[...$('bankFiles').files].map(f=>'<div class="fileLine">'+(f.name.toLowerCase().endsWith('.pdf')?'📄 PDF · ':'📊 Excel · ')+f.name+'</div>').join('')};
 
 $('processDocs').onclick=async()=>{
  const files=[...$('docFiles').files],uploadGroup=$('uploadGroup').value;let accepted=0,skipped=0,unknown=0;
@@ -260,13 +260,31 @@ function parseBank(wb,file){
 }
 $('processBanks').onclick=async()=>{
  const btn=$('processBanks');btn.disabled=true;btn.textContent='Lendo extratos…';
- let accepted=0,skipped=0,duplicates=0,pdfCount=0;const errors=[];
+ let accepted=0,skipped=0,duplicates=0,pdfCount=0,pdfCanceled=0;const errors=[];
  try{
   for(const f of [...$('bankFiles').files]){
    try{
     const ext=f.name.split('.').pop().toLowerCase();
     let rows;
-    if(ext==='pdf'){rows=await window.parseBankPdf(f);pdfCount+=rows.length}
+    if(ext==='pdf'){
+      if(typeof window.parseBankPdf!=='function')throw Error('Leitor PDF indisponível. Recarregue a página e tente novamente.');
+      rows=await window.parseBankPdf(f);
+      const debits=rows.filter(r=>r.value<0),credits=rows.filter(r=>r.value>0);
+      const sum=arr=>arr.reduce((s,r)=>s+Math.abs(r.value),0);
+      const accounts=[...new Set(rows.map(r=>(r.agencia||'?')+' / '+(r.conta||'?')))];
+      const overlap=rows.filter(r=>state.banks.some(b=>b.date===r.date&&Math.abs(b.value-r.value)<0.005&&String(b.agencia||'').replace(/\D/g,'')===String(r.agencia||'').replace(/\D/g,'')&&String(b.conta||'').replace(/\D/g,'')===String(r.conta||'').replace(/\D/g,''))).length;
+      const dates=rows.map(r=>r.date).filter(Boolean).sort();
+      const message='CONFIRMAR IMPORTAÇÃO DE PDF\n\nArquivo: '+f.name+
+       '\nConta: '+accounts.join(', ')+
+       '\nPeríodo identificado: '+(dates[0]||'—')+' a '+(dates[dates.length-1]||'—')+
+       '\nLançamentos identificados: '+rows.length+
+       '\nSaídas: '+debits.length+' · '+money(sum(debits))+
+       '\nEntradas: '+credits.length+' · '+money(sum(credits))+
+       (overlap?'\nATENÇÃO: '+overlap+' movimento(s) têm mesma data, valor e conta de extratos já carregados. Revise possíveis duplicidades.':'')+
+       '\n\nConfirme somente se esses dados conferem com o PDF. Nenhuma conciliação será confirmada automaticamente.';
+      if(!confirm(message)){pdfCanceled++;continue}
+      pdfCount+=rows.length;
+     }
     else if(['xls','xlsx'].includes(ext)){const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});rows=parseBank(wb,f.name)}
     else{throw Error('Formato não aceito')}
     for(const r of rows){
@@ -285,7 +303,7 @@ $('processBanks').onclick=async()=>{
   for(const d of state.docs){if(d.status==='AGUARDANDO EXTRATO'&&isLotDoc(d)){const cov=lotCoverage(d);if(cov.available+0.009>=cov.target){d.status='PENDENTE';d.obs='Novo extrato carregado · revisar composição';reopened++}}}
   save();render();
   if(!errors.length){modal('banksModal',false);$('bankFiles').value='';$('bankFileList').innerHTML=''}
-  alert(accepted+' lançamento(s) novo(s) adicionados.'+(pdfCount?' '+pdfCount+' linha(s) extraída(s) de PDF para revisão.':'')+(reopened?' '+reopened+' lote(s) reaberto(s) para revisão.':'')+(duplicates?' '+duplicates+' duplicado(s) ignorado(s).':'')+(skipped?' '+skipped+' fora de 2026 ignorado(s).':'')+(errors.length?'\nArquivos não importados:\n'+errors.join('\n'):''));
+  alert(accepted+' lançamento(s) novo(s) adicionados.'+(pdfCount?' '+pdfCount+' lançamento(s) extraído(s) de PDF (origem identificada na tabela).':'')+(pdfCanceled?' '+pdfCanceled+' PDF(s) não importado(s) por sua escolha.':'')+(reopened?' '+reopened+' lote(s) reaberto(s) para revisão.':'')+(duplicates?' '+duplicates+' duplicado(s) ignorado(s).':'')+(skipped?' '+skipped+' fora de 2026 ignorado(s).':'')+(errors.length?'\nArquivos não importados:\n'+errors.join('\n'):''));
  }finally{btn.disabled=false;btn.textContent='Adicionar extratos'}
 };
 
