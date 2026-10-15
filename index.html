@@ -71,7 +71,15 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="bankCrossPanel">
+ <div class="paneHead" style="padding:0 0 10px;border:0"><div><h2 style="margin:0">Cruzamento de contas bancárias</h2><div class="muted">Movimentações entre contas e saídas sem espelho. Pares são sugestões para conferência, não conciliações confirmadas.</div></div></div>
+ <div class="filters"><select id="crossAccount"><option value="">Todas as contas</option></select><select id="crossType"><option value="">Todas as movimentações</option><option value="TRANSFERENCIA">Possíveis transferências internas</option><option value="SAIDA">Saídas sem espelho</option><option value="ENTRADA">Entradas bancárias</option></select><input id="crossValue" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Valor em R$ (opcional)" title="Valor exato em reais"></div>
+ <div class="grid" style="grid-template-columns:repeat(3,1fr)"><div class="card"><div class="lab">PARES PARA CONFERIR</div><div class="val" id="crossPairs">0</div></div><div class="card"><div class="lab">SAÍDAS SEM ESPELHO</div><div class="val" id="crossOut">0</div></div><div class="card"><div class="lab">ENTRADAS NO EXTRATO</div><div class="val" id="crossIn">0</div></div></div>
+ <div style="max-height:330px;overflow:auto;margin-top:12px"><table><thead><tr><th>Data</th><th>Conta / origem</th><th>Conta / destino possível</th><th>Histórico</th><th>Valor</th><th>Classificação</th></tr></thead><tbody id="crossBody"></tbody></table></div>
+ <p class="muted">Transferências sugeridas exigem valor igual, débito e crédito em contas distintas e datas próximas. Sem identificação bancária da contraparte, não é possível confirmar que sejam a mesma operação. Nenhuma sugestão altera os vínculos existentes.</p>
+</div>
+
+<div class="panel">
     <h2>Fluxo operacional</h2>
     <p class="muted"><b>Espelho recebido</b> → leitura → <b>pagamento identificado</b> → conciliação → <b>conciliado</b>, <b>pendente</b>, <b>divergência</b> ou <b>aguardando extrato</b>.</p>
   </div>
@@ -402,8 +410,37 @@ function bidirectionalDiagnosis(){
  const docs=periodDocsIdentified(),docNoBank=docs.filter(d=>d.status!=='CONCILIADO'&&!hasBankEvidence(d));
  return{debits,matched,bankNoDoc,docs,docNoBank};
 }
+function crossAccountId(b){return String(b.agencia||'').replace(/\D/g,'')+' / '+String(b.conta||'').replace(/\D/g,'')}
+function crossInternalCandidates(){
+ const all=periodBanksRaw(),debits=all.filter(b=>b.value<0&&!b.matchedDoc),credits=all.filter(b=>b.value>0),used=new Set(),out=[];
+ for(const debit of debits){
+  const matches=credits.filter(credit=>!used.has(credit.id)&&crossAccountId(credit)!==crossAccountId(debit)&&
+   Math.abs(debit.value+credit.value)<.01&&dateDiff(debit.date,credit.date)<=1);
+  if(matches.length===1){
+   const credit=matches[0];used.add(credit.id);out.push({debit,credit});
+  }
+ }
+ return out;
+}
+function renderCrossAccounts(){
+ const all=periodBanksRaw(),debits=all.filter(b=>b.value<0&&!b.matchedDoc),credits=all.filter(b=>b.value>0),pairs=crossInternalCandidates();
+ const sel=$('crossAccount').value,allAccounts=[...new Set(state.banks.map(crossAccountId))].sort();
+ $('crossAccount').innerHTML='<option value="">Todas as contas</option>'+allAccounts.map(x=>'<option value="'+x+'">'+x+'</option>').join('');
+ $('crossAccount').value=allAccounts.includes(sel)?sel:'';
+ $('crossPairs').textContent=pairs.length;$('crossOut').textContent=debits.length;$('crossIn').textContent=credits.length;
+ const type=$('crossType').value,amount=Number($('crossValue').value||0),account=$('crossAccount').value;
+ const inPair=new Set(pairs.map(p=>p.debit.id));
+ const rows=[];
+ if(!type||type==='TRANSFERENCIA')for(const p of pairs)rows.push({type:'TRANSFERENCIA',b:p.debit,target:p.credit});
+ if(!type||type==='SAIDA')for(const b of debits.filter(b=>!inPair.has(b.id)))rows.push({type:'SAIDA',b});
+ if(!type||type==='ENTRADA')for(const b of credits)rows.push({type:'ENTRADA',b});
+ const filtered=rows.filter(r=>(!account||crossAccountId(r.b)===account||r.target&&crossAccountId(r.target)===account)&&(!amount||Math.abs(Math.abs(r.b.value)-amount)<.01));
+ const htmlEscape=x=>String(x??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+ $('crossBody').innerHTML=filtered.slice(0,500).map(r=>'<tr><td>'+htmlEscape(r.b.date)+'</td><td>'+htmlEscape(crossAccountId(r.b))+'</td><td>'+htmlEscape(r.target?crossAccountId(r.target):'—')+'</td><td>'+htmlEscape(r.b.razao||r.b.lanc||'')+(r.target?' / crédito: '+htmlEscape(r.target.razao||r.target.lanc||''):'')+'</td><td>'+money(Math.abs(r.b.value))+'</td><td>'+({TRANSFERENCIA:'POSSÍVEL TRANSFERÊNCIA · REVISAR',SAIDA:'SAÍDA SEM ESPELHO',ENTRADA:'ENTRADA BANCÁRIA'}[r.type])+'</td></tr>').join('')||'<tr><td colspan="6">Nenhuma movimentação encontrada para estes filtros.</td></tr>';
+}
+['crossAccount','crossType','crossValue'].forEach(id=>$(id).addEventListener('input',renderCrossAccounts));
 function render(){
- updatePeriodUI();
+ updatePeriodUI();renderCrossAccounts();
  const groups=[...new Set(state.docs.map(d=>d.group))].sort();const cur=$('filterGroup').value;$('filterGroup').innerHTML='<option value="">Todos os grupos</option>'+groups.map(g=>'<option '+(g===cur?'selected':'')+'>'+g+'</option>').join('');
  const docs=currentDocs(),bankRank=currentBanks(),banks=bankRank.map(x=>x.b);const visibleFiles=new Set(docs.map(d=>d.sourceId||d.id));$('docCount').textContent=visibleFiles.size+' arquivo(s) · '+docs.length+' pagamento/item(ns)';$('bankCount').textContent=banks.length+' lançamentos';
  $('docBody').innerHTML=docs.map(d=>'<tr class="row '+(state.selectedDoc===d.id?'sel':'')+'" data-doc="'+d.id+'"><td>'+(d.date||'DATA A REVISAR')+'</td><td>'+d.group+'</td><td>'+d.name+(d.itemNo?' <span class="pill">ITEM '+d.itemNo+'</span>':' <span class="pill warn">NÃO LIDO</span>')+'</td><td>'+(d.benef||'—')+'</td><td>'+(d.value?money(d.value):'—')+'</td><td>'+statusPill(d.status)+'</td></tr>').join('');
