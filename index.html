@@ -210,11 +210,24 @@ const $=id=>document.getElementById(id);
 const norm=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
 const money=n=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(n)||0);
 const isoDate=d=>{if(!d)return'';if(d instanceof Date)return d.toISOString().slice(0,10);const s=String(d);const m=s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);return m?m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'):s.slice(0,10)};
-const inferDate=name=>{const s=String(name);
- let m=s.match(/(?:^|\D)(20\d{2})[-_.](\d{1,2})[-_.](\d{1,2})(?:\D|$)/);if(m)return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
- m=s.match(/(?:^|\D)(\d{1,2})[-_.](\d{1,2})[-_.](20\d{2})(?:\D|$)/);if(m)return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
- m=s.match(/(?:^|\D)(\d{2})(\d{2})(20\d{2})(?:\D|$)/);if(m)return m[3]+'-'+m[2]+'-'+m[1];
- m=s.match(/(?:^|\D)(\d{2})(\d{2})(?:\D|$)/);if(m)return '2026-'+m[2]+'-'+m[1];return''};
+const inferDate=name=>{
+ const s=String(name||'').split(/[\\/]/).pop().replace(/\.[^.]+$/,'');
+ const valid=(year,month,day)=>{
+  const y=Number(year),m=Number(month),d=Number(day);
+  const dt=new Date(Date.UTC(y,m-1,d));
+  return dt.getUTCFullYear()===y&&dt.getUTCMonth()===m-1&&dt.getUTCDate()===d?
+   String(y).padStart(4,'0')+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0'):'';
+ };
+ let m=s.match(/(?:^|\D)(20\d{2})[-_.](\d{1,2})[-_.](\d{1,2})(?!\d)/);
+ if(m)return valid(m[1],m[2],m[3]);
+ m=s.match(/(?:^|\D)(\d{1,2})[-_.](\d{1,2})[-_.](20\d{2})(?!\d)/);
+ if(m)return valid(m[3],m[2],m[1]);
+ m=s.match(/(?:^|\D)(\d{2})(\d{2})(20\d{2})(?!\d)/);
+ if(m)return valid(m[3],m[2],m[1]);
+ m=s.match(/(?:^|\D)(20\d{2})(\d{2})(\d{2})(?!\d)/);
+ if(m)return valid(m[1],m[2],m[3]);
+ return '';
+};
 const inferGroup=path=>{const raw=String(path),p=raw.replace(/\\/g,'/').split('/').filter(Boolean);if(p.length>1)return p[p.length-2].replaceAll('_',' ');const n=norm(raw);if(n.includes('EVENTOS'))return'EVENTOS';if(/(?:^|\W)LS(?:\W|$)|LEO SANTANA/.test(n))return'LS';if(n.includes('ESCRITORIO')||n.includes('WET'))return'ESCRITORIO';if(n.includes('DIZZON'))return'DIZZON';if(n.includes('KART LOVE'))return'KART LOVE';if(n.includes('VINA CALMON'))return'VINA CALMON';return'SEM GRUPO'};
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 let mediaDbPromise=null;
@@ -239,18 +252,18 @@ $('processDocs').onclick=async()=>{
    const zip=await JSZip.loadAsync(await f.arrayBuffer());
    for(const [name,z] of Object.entries(zip.files)){
     if(z.dir)continue;const e=name.split('.').pop().toLowerCase();if(!['jpg','jpeg','png','webp','pdf'].includes(e))continue;
-    const date=inferDate(name);if(date&&!date.startsWith('2026-')){skipped++;continue}if(!date){unknown++;continue}
-    if(state.docs.some(d=>d.path===name&&d.group===inferGroup(name)&&d.date===date)){skipped++;continue}const id=uid(),blob=await z.async('blob');await putMedia(id,blob);
+    const date=inferDate(name);if(date&&!date.startsWith('2026-')){skipped++;continue}if(!date){unknown++;}
+    if(state.docs.some(d=>d.path===name&&d.date===date)){skipped++;continue}const id=uid(),blob=await z.async('blob');await putMedia(id,blob);
     state.docs.push({id,sourceId:id,name:name.split('/').pop(),path:name,group:uploadGroup||inferGroup(name),date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:e==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
    }
   }else{
-   const date=inferDate(f.name);if(date&&!date.startsWith('2026-')){skipped++;continue}if(!date){unknown++;continue}
+   const date=inferDate(f.name);if(date&&!date.startsWith('2026-')){skipped++;continue}if(!date){unknown++;}
    if(state.docs.some(d=>d.path===f.name&&d.date===date)){skipped++;continue}const id=uid();await putMedia(id,f);
    state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:uploadGroup||inferGroup(f.name),date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
   }
  }
  save();render();modal('docsModal',false);$('docFiles').value='';$('uploadGroup').value='';$('docFileList').innerHTML='';
- alert(accepted+' espelho(s) adicionados.'+(skipped?' '+skipped+' arquivo(s) fora de 2026 ignorados.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável ignorados.':''));
+ alert(accepted+' espelho(s) adicionados.'+(skipped?' '+skipped+' arquivo(s) já existentes ou com data fora de 2026 não adicionados.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável guardados para revisão (sem competência atribuída).':''));
 };
 
 function parseBank(wb,file){
@@ -368,7 +381,7 @@ function updatePeriodUI(){
  $('filterDate').min=ym+'-01';$('filterDate').max=ym+'-'+String(last).padStart(2,'0');
  if($('filterDate').value&&!$('filterDate').value.startsWith(ym))$('filterDate').value='';
 }
-function currentDocs(){const mo=selectedMonth(),dt=$('filterDate').value;return state.docs.filter(d=>d.date&&d.date.startsWith(mo)&&(!dt||d.date===dt)&&(!$('filterGroup').value||d.group===$('filterGroup').value)&&(!$('filterStatus').value||d.status===$('filterStatus').value))}
+function currentDocs(){const mo=selectedMonth(),dt=$('filterDate').value;return state.docs.filter(d=>(!d.date||d.date.startsWith(mo))&&(!dt||d.date===dt)&&(!$('filterGroup').value||d.group===$('filterGroup').value)&&(!$('filterStatus').value||d.status===$('filterStatus').value))}
 function currentBanks(){const mo=selectedMonth(),dt=$('filterDate').value,d=state.docs.find(x=>x.id===state.selectedDoc),lot=isLotDoc(d);return state.banks.filter(b=>b.date&&b.date.startsWith(mo)&&(!dt||b.date===dt)).map(b=>({b,s:lot?0:((!b.matchedDoc||b.matchedDoc===d?.id)?matchScore(d,b):0)})).sort((x,y)=>y.s-x.s||String(y.b.date).localeCompare(String(x.b.date)))}
 function statusPill(s){return '<span class="pill '+(s==='CONCILIADO'?'ok':s==='DIVERGÊNCIA'?'err':'warn')+'">'+s+'</span>'}
 function periodBanksRaw(){const mo=selectedMonth(),dt=$('filterDate').value;return state.banks.filter(b=>b.date&&b.date.startsWith(mo)&&(!dt||b.date===dt))}
@@ -387,7 +400,7 @@ function render(){
  updatePeriodUI();
  const groups=[...new Set(state.docs.map(d=>d.group))].sort();const cur=$('filterGroup').value;$('filterGroup').innerHTML='<option value="">Todos os grupos</option>'+groups.map(g=>'<option '+(g===cur?'selected':'')+'>'+g+'</option>').join('');
  const docs=currentDocs(),bankRank=currentBanks(),banks=bankRank.map(x=>x.b);const visibleFiles=new Set(docs.map(d=>d.sourceId||d.id));$('docCount').textContent=visibleFiles.size+' arquivo(s) · '+docs.length+' pagamento/item(ns)';$('bankCount').textContent=banks.length+' lançamentos';
- $('docBody').innerHTML=docs.map(d=>'<tr class="row '+(state.selectedDoc===d.id?'sel':'')+'" data-doc="'+d.id+'"><td>'+d.date+'</td><td>'+d.group+'</td><td>'+d.name+(d.itemNo?' <span class="pill">ITEM '+d.itemNo+'</span>':' <span class="pill warn">NÃO LIDO</span>')+'</td><td>'+(d.benef||'—')+'</td><td>'+(d.value?money(d.value):'—')+'</td><td>'+statusPill(d.status)+'</td></tr>').join('');
+ $('docBody').innerHTML=docs.map(d=>'<tr class="row '+(state.selectedDoc===d.id?'sel':'')+'" data-doc="'+d.id+'"><td>'+(d.date||'DATA A REVISAR')+'</td><td>'+d.group+'</td><td>'+d.name+(d.itemNo?' <span class="pill">ITEM '+d.itemNo+'</span>':' <span class="pill warn">NÃO LIDO</span>')+'</td><td>'+(d.benef||'—')+'</td><td>'+(d.value?money(d.value):'—')+'</td><td>'+statusPill(d.status)+'</td></tr>').join('');
  $('bankBody').innerHTML=bankRank.map(({b,s})=>{const lot=isLotDoc(state.docs.find(x=>x.id===state.selectedDoc)),multi=(state.selectedBanks||[]).includes(b.id);return '<tr class="row '+((lot?multi:state.selectedBank===b.id)?'sel ':'')+(s&&!b.matchedDoc?'suggest':'')+'" data-bank="'+b.id+'"><td>'+b.date+'</td><td>'+b.agencia+' / '+b.conta+'</td><td>'+(b.razao||b.lanc)+(b.sourceFormat==='PDF'?'<div class="muted">PDF · pág. '+b.pdfPage+' · revisar</div>':'')+'</td><td class="'+(b.value<0?'red':'green')+'">'+money(b.value)+'</td><td>'+(lot?(multi?'<span class="score">SELECIONADO</span>':'—'):(b.matchedDoc?'—':s?'<span class="score">'+(s>=95?'FORTE':s>=80?'POSSÍVEL':'FRACO')+' · '+s+'</span>':'—'))+'</td><td>'+(b.matchedDoc?'<span class="pill ok">CONCILIADO</span>':'<span class="pill warn">ABERTO</span>')+'</td></tr>'}).join('');
  document.querySelectorAll('[data-doc]').forEach(r=>r.onclick=()=>{if(state.selectedDoc!==r.dataset.doc)state.selectedBanks=[];state.selectedDoc=r.dataset.doc;state.selectedBank=null;render();fillDoc()});document.querySelectorAll('[data-bank]').forEach(r=>r.onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc),id=r.dataset.bank;if(isLotDoc(d)){const b=state.banks.find(x=>x.id===id);if(!b||b.value>=0||(b.matchedDoc&&b.matchedDoc!==d.id))return;state.selectedBanks=state.selectedBanks||[];state.selectedBanks=state.selectedBanks.includes(id)?state.selectedBanks.filter(x=>x!==id):[...state.selectedBanks,id];state.selectedBank=null}else{state.selectedBank=id;state.selectedBanks=[]}render();selectionText();fillDoc()});
  const mo=selectedMonth(),all=state.docs.filter(x=>x.date&&x.date.startsWith(mo)),files=new Set(all.map(x=>x.sourceId||x.id)),identified=all.filter(x=>x.itemNo||x.value),unreadSources=new Set(all.filter(x=>!x.itemNo&&!x.value&&!x.ocrDone).map(x=>x.sourceId||x.id)),readNoPaymentSources=new Set(all.filter(x=>!x.itemNo&&!x.value&&x.ocrDone).map(x=>x.sourceId||x.id)),ok=identified.filter(x=>x.status==='CONCILIADO').length,pend=identified.filter(x=>x.status==='PENDENTE').length,div=identified.filter(x=>x.status==='DIVERGÊNCIA').length,awaiting=identified.filter(x=>x.status==='AGUARDANDO EXTRATO').length;
