@@ -73,7 +73,8 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 
   <div class="panel" id="bankCrossPanel">
  <div class="paneHead" style="padding:0 0 10px;border:0"><div><h2 style="margin:0">Cruzamento de contas bancárias</h2><div class="muted">Movimentações entre contas e saídas sem espelho. Pares são sugestões para conferência, não conciliações confirmadas.</div></div></div>
- <div class="filters"><select id="crossAccount"><option value="">Todas as contas</option></select><select id="crossType"><option value="">Todas as movimentações</option><option value="TRANSFERENCIA">Possíveis transferências internas</option><option value="SAIDA">Saídas sem espelho</option><option value="ENTRADA">Entradas bancárias</option></select><input id="crossValue" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Valor em R$ (opcional)" title="Valor exato em reais"></div>
+ <div class="filters"><select id="crossAccount"><option value="">Todas as contas</option></select><select id="crossType"><option value="">Todas as movimentações</option><option value="TRANSFERENCIA">Possíveis transferências internas</option><option value="SAIDA">Saídas sem vínculo confirmado</option><option value="UNICO">Candidato único</option><option value="AMBIGUO">Múltiplos candidatos</option><option value="NENHUM">Sem candidato</option><option value="ENTRADA">Entradas bancárias</option></select><input id="crossValue" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Valor em R$ (opcional)" title="Valor exato em reais"></div>
+ <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px"><div class="card"><div class="lab">DÉBITOS COM CANDIDATO ÚNICO</div><div class="val green" id="crossUnique">0</div></div><div class="card"><div class="lab">DÉBITOS COM MÚLTIPLOS CANDIDATOS</div><div class="val amber" id="crossAmbiguous">0</div></div><div class="card"><div class="lab">DÉBITOS SEM CANDIDATO</div><div class="val red" id="crossMissing">0</div></div><div class="card"><div class="lab">ESPELHOS SEM DÉBITO CANDIDATO</div><div class="val" id="crossUnmatchedDocs">0</div></div></div>
  <div class="grid" style="grid-template-columns:repeat(3,1fr)"><div class="card"><div class="lab">PARES PARA CONFERIR</div><div class="val" id="crossPairs">0</div></div><div class="card"><div class="lab">SAÍDAS SEM ESPELHO</div><div class="val" id="crossOut">0</div></div><div class="card"><div class="lab">ENTRADAS NO EXTRATO</div><div class="val" id="crossIn">0</div></div></div>
  <div style="max-height:330px;overflow:auto;margin-top:12px"><table><thead><tr><th>Data</th><th>Conta / origem</th><th>Conta / destino possível</th><th>Histórico</th><th>Valor</th><th>Espelho pendente candidato</th><th>Classificação</th></tr></thead><tbody id="crossBody"></tbody></table></div>
  <p class="muted">Transferências sugeridas exigem valor igual, débito e crédito em contas distintas e datas próximas. Sem identificação bancária da contraparte, não é possível confirmar que sejam a mesma operação. Nenhuma sugestão altera os vínculos existentes.</p>
@@ -422,6 +423,20 @@ function crossInternalCandidates(){
  }
  return out;
 }
+function auditCandidateDocs(b){
+ if(!b||b.value>=0)return [];
+ const isEligible=d=>d.status!=='CONCILIADO'&&Number(d.value)>0&&d.date&&Math.abs(Number(d.value)+Number(b.value))<.01&&dateDiff(d.date,b.date)<=3;
+ return state.docs.filter(isEligible).map(d=>({d,days:dateDiff(d.date,b.date),nameScore:tokenOverlap(d.benef,b.razao+' '+b.lanc)}))
+ .sort((x,y)=>x.days-y.days||y.nameScore-x.nameScore||String(x.d.name).localeCompare(String(y.d.name)));
+}
+function auditCrossSummary(){
+ const debits=periodBanksRaw().filter(b=>b.value<0&&!b.matchedDoc);
+ const summary={unique:0,ambiguous:0,missing:0};
+ for(const b of debits){const n=auditCandidateDocs(b).length;if(n===1)summary.unique++;else if(n>1)summary.ambiguous++;else summary.missing++}
+ const docs=periodDocsIdentified().filter(d=>d.status!=='CONCILIADO'&&Number(d.value)>0);
+ summary.unmatchedDocs=docs.filter(d=>!debits.some(b=>auditCandidateDocs(b).some(x=>x.d.id===d.id))).length;
+ return summary;
+}
 function renderCrossAccounts(){
  const all=periodBanksRaw(),debits=all.filter(b=>b.value<0&&!b.matchedDoc),credits=all.filter(b=>b.value>0),pairs=crossInternalCandidates();
  const sel=$('crossAccount').value,allAccounts=[...new Set(state.banks.map(crossAccountId))].sort();
@@ -432,14 +447,12 @@ function renderCrossAccounts(){
  const inPair=new Set(pairs.map(p=>p.debit.id));
  const rows=[];
  if(!type||type==='TRANSFERENCIA')for(const p of pairs)rows.push({type:'TRANSFERENCIA',b:p.debit,target:p.credit});
- if(!type||type==='SAIDA')for(const b of debits.filter(b=>!inPair.has(b.id)))rows.push({type:'SAIDA',b});
+ if(!type||['SAIDA','UNICO','AMBIGUO','NENHUM'].includes(type))for(const b of debits.filter(b=>!inPair.has(b.id)))rows.push({type:'SAIDA',b});
  if(!type||type==='ENTRADA')for(const b of credits)rows.push({type:'ENTRADA',b});
- const filtered=rows.filter(r=>(!account||crossAccountId(r.b)===account||r.target&&crossAccountId(r.target)===account)&&(!amount||Math.abs(Math.abs(r.b.value)-amount)<.01));
+ const filtered=rows.filter(r=>(!account||crossAccountId(r.b)===account||r.target&&crossAccountId(r.target)===account)&&(!amount||Math.abs(Math.abs(r.b.value)-amount)<.01)&&(!['UNICO','AMBIGUO','NENHUM'].includes(type)||(type==='UNICO'&&auditCandidateDocs(r.b).length===1)||(type==='AMBIGUO'&&auditCandidateDocs(r.b).length>1)||(type==='NENHUM'&&auditCandidateDocs(r.b).length===0)));
  const htmlEscape=x=>String(x??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
- const pendingDocs=state.docs.filter(d=>d.status!=='CONCILIADO'&&d.value>0&&d.date);
- const candidates=b=>pendingDocs.filter(d=>Math.abs(Number(d.value)-Math.abs(b.value))<.01&&dateDiff(d.date,b.date)<=3)
- .sort((a,z)=>dateDiff(a.date,b.date)-dateDiff(z.date,b.date)||Number(norm(z.group)==='EVENTOS')-Number(norm(a.group)==='EVENTOS'));
- const candidateCell=b=>{if(b.value>=0)return '—';const found=candidates(b);if(!found.length)return '<span class="pill warn">SEM CANDIDATO · REVISAR</span>';return found.slice(0,3).map(d=>'<button class="smallBtn crossMatchDoc" data-cross-doc="'+htmlEscape(d.id)+'" data-cross-bank="'+htmlEscape(b.id)+'">'+htmlEscape(d.group)+' · '+htmlEscape(d.date)+' · '+htmlEscape(d.benef||d.name)+' (revisar)</button>').join(' ') + (found.length>3?' +'+(found.length-3)+' candidatos':'');};
+ const audit=auditCrossSummary();$('crossUnique').textContent=audit.unique;$('crossAmbiguous').textContent=audit.ambiguous;$('crossMissing').textContent=audit.missing;$('crossUnmatchedDocs').textContent=audit.unmatchedDocs;
+ const candidateCell=b=>{if(b.value>=0)return '—';const found=auditCandidateDocs(b).map(x=>x.d);if(!found.length)return '<span class="pill warn">SEM CANDIDATO · REVISAR</span>';const label=found.length===1?'<span class="pill ok">CANDIDATO ÚNICO</span> ':'<span class="pill warn">'+found.length+' CANDIDATOS · CONFLITO</span> ';return label+found.slice(0,3).map(d=>'<button class="smallBtn crossMatchDoc" data-cross-doc="'+htmlEscape(d.id)+'" data-cross-bank="'+htmlEscape(b.id)+'">'+htmlEscape(d.group)+' · '+htmlEscape(d.date)+' · '+htmlEscape(d.benef||d.name)+' (revisar)</button>').join(' ') + (found.length>3?' +'+(found.length-3)+' candidatos':'');};
  $('crossBody').innerHTML=filtered.slice(0,500).map(r=>'<tr><td>'+htmlEscape(r.b.date)+'</td><td>'+htmlEscape(crossAccountId(r.b))+'</td><td>'+htmlEscape(r.target?crossAccountId(r.target):'—')+'</td><td>'+htmlEscape(r.b.razao||r.b.lanc||'')+(r.target?' / crédito: '+htmlEscape(r.target.razao||r.target.lanc||''):'')+'</td><td>'+money(Math.abs(r.b.value)) +'</td><td>'+candidateCell(r.b)+'</td><td>'+({TRANSFERENCIA:'POSSÍVEL TRANSFERÊNCIA · REVISAR',SAIDA:'SAÍDA SEM ESPELHO',ENTRADA:'ENTRADA BANCÁRIA'}[r.type])+'</td></tr>').join('')||'<tr><td colspan="7">Nenhuma movimentação encontrada para estes filtros.</td></tr>';
  document.querySelectorAll('.crossMatchDoc').forEach(btn=>btn.onclick=()=>{state.selectedDoc=btn.dataset.crossDoc;state.selectedBank=btn.dataset.crossBank;const d=state.docs.find(x=>x.id===state.selectedDoc);if(d&&(!d.date||!d.date.startsWith(selectedMonth()))){$('filterMonth').value=d.date.slice(0,7)}$('filterDate').value='';$('filterSearch').value='';$('filterAmount').value='';$('filterBankAccount').value='';$('filterGroup').value='';$('filterStatus').value='';render();fillDoc();document.querySelector('#selectionMsg').scrollIntoView({behavior:'smooth',block:'center'});});
 }
