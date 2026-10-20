@@ -393,9 +393,20 @@ function suggestLotComposition(d){
  dfs(0,0,[]);
  return found||[];
 }
+function groupAccountHistory(group){
+ const count=new Map();
+ for(const d of state.docs){if(norm(d.group)!==norm(group)||d.status!=='CONCILIADO')continue;
+  for(const id of [d.bankId,...(d.bankIds||[])].filter(Boolean)){
+   const b=state.banks.find(x=>x.id===id);if(!b)continue;
+   const account=crossAccountId(b);count.set(account,(count.get(account)||0)+1);
+  }
+ }
+ return [...count.entries()].sort((a,b)=>b[1]-a[1]).map(([account,n])=>({account,n}));
+}
 function bestBankFor(d){
  if(!d||!d.value||d.status==='CONCILIADO')return null;
- const ranked=state.banks.filter(b=>!b.matchedDoc||b.matchedDoc===d.id).map(b=>({b,s:matchScore(d,b)})).filter(x=>x.s>0).sort((a,b)=>b.s-a.s);
+ const frequent=groupAccountHistory(d.group),preferred=new Set(frequent.map(x=>x.account));
+ const ranked=state.banks.filter(b=>!b.matchedDoc||b.matchedDoc===d.id).map(b=>({b,s:matchScore(d,b)})).filter(x=>x.s>0).sort((a,b)=>(b.s+Number(preferred.has(crossAccountId(b)))*5)-(a.s+Number(preferred.has(crossAccountId(a)))*5));
  if(!ranked.length)return null;return ranked[0];
 }
 function reviewRows(){
@@ -550,7 +561,7 @@ $('batchOcrBtn').onclick=async()=>{const candidates=currentDocs().filter(d=>d.ki
 
 $('saveDocEdit').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');const oldGroup=d.group;d.group=$('editGroup').value||'SEM GRUPO';d.benef=$('editBenef').value.trim();d.value=$('editValue').value?Number($('editValue').value):null;d.date=$('editDate').value;d.obs=$('editObs').value.trim();if(d.sourceId&&oldGroup!==d.group){state.docs.filter(x=>x.sourceId===d.sourceId).forEach(x=>x.group=d.group)}save();render();fillDoc()};
 $('applyGroupSource').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');const g=$('editGroup').value,source=d.sourceId||d.id,items=state.docs.filter(x=>(x.sourceId||x.id)===source);if(!confirm('Aplicar '+g+' aos '+items.length+' item(ns) deste arquivo? Nenhum vínculo bancário será alterado.'))return;items.forEach(x=>x.group=g);save();render();fillDoc();};
-$('suggestBankBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!d.value)return alert('Selecione um espelho com valor preenchido.');if(isLotDoc(d))return alert('Folha/lote: utilize Sugerir composição e revise todos os débitos da conta antes de conciliar.');const opts=state.banks.filter(b=>b.value<0&&(!b.matchedDoc||b.matchedDoc===d.id)&&Math.abs(Math.abs(b.value)-Math.abs(d.value))<.01&&dateDiff(b.date,d.date)<=3).map(b=>({b,score:matchScore(d,b)})).sort((a,b)=>b.score-a.score);if(!opts.length)return alert('Nenhum débito de mesmo valor encontrado até 3 dias da data do espelho. Verifique mês, conta e valor.');const top=opts[0];state.selectedBank=top.b.id;render();fillDoc();alert('Débito candidato selecionado: '+crossAccountId(top.b)+' · '+top.b.date+' · '+money(Math.abs(top.b.value))+'\n'+(top.b.razao||top.b.lanc)+'\n\nExistem '+opts.length+' candidato(s). Confira o lançamento selecionado e a origem antes de conciliar.');};
+$('suggestBankBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!d.value)return alert('Selecione um espelho com valor preenchido.');if(isLotDoc(d))return alert('Folha/lote: utilize Sugerir composição e revise todos os débitos da conta antes de conciliar.');const opts=state.banks.filter(b=>b.value<0&&(!b.matchedDoc||b.matchedDoc===d.id)&&Math.abs(Math.abs(b.value)-Math.abs(d.value))<.01&&dateDiff(b.date,d.date)<=3).map(b=>({b,score:matchScore(d,b)})).sort((a,b)=>b.score-a.score);if(!opts.length)return alert('Nenhum débito de mesmo valor encontrado até 3 dias da data do espelho. Verifique mês, conta e valor.');const history=groupAccountHistory(d.group),counts=new Map(history.map(x=>[x.account,x.n]));opts.sort((a,b)=>(Number(counts.has(crossAccountId(b.b)))*5+b.score)-(Number(counts.has(crossAccountId(a.b)))*5+a.score));const top=opts[0];state.selectedBank=top.b.id;render();fillDoc();alert('Débito candidato selecionado: '+crossAccountId(top.b)+' · '+top.b.date+' · '+money(Math.abs(top.b.value))+'\n'+(top.b.razao||top.b.lanc)+'\n\nExistem '+opts.length+' candidato(s). '+(counts.has(crossAccountId(top.b))?'Conta com '+counts.get(crossAccountId(top.b))+' conciliação(ões) anterior(es) neste grupo. ':'')+'Confira a origem antes de conciliar.');};
 $('suggestLotBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!isLotDoc(d))return alert('Selecione um lote.');const comp=suggestLotComposition(d);if(!comp.length){const cov=lotCoverage(d);if(cov.available+0.009<cov.target)return alert('Cobertura bancária insuficiente. Total do lote: '+money(cov.target)+'. Todos os débitos disponíveis em ±1 dia somam '+money(cov.available)+'. Déficit mínimo: '+money(cov.missing)+'. Isso não prova que os débitos disponíveis pertençam ao lote; pode faltar a conta/extrato de origem.');return alert('Há cobertura bancária suficiente, mas nenhuma combinação exata foi encontrada. Revise data, conta e lançamentos do lote.');}state.selectedBanks=comp.map(b=>b.id);render();fillDoc();alert('Composição exata encontrada com '+comp.length+' lançamento(s). Revise os favorecidos antes de conciliar.');};
 $('clearLotSelectionBtn').onclick=()=>{state.selectedBanks=[];render();fillDoc();};
 $('awaitExtractBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!isLotDoc(d))return alert('Selecione um lote.');const cov=lotCoverage(d);d.status='AGUARDANDO EXTRATO';d.obs='Aguardando extrato/conta de origem · cobertura máxima teórica '+cov.pct.toFixed(1).replace('.',',')+'% · déficit mínimo '+money(cov.missing);state.selectedBanks=[];save();render();fillDoc();alert('Lote separado como Aguardando extrato. Você pode continuar conciliando os demais pagamentos e retomar este lote depois.');};
