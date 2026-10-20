@@ -163,6 +163,20 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     </div>
   </div>
 
+  <div class="panel" id="auditPanel">
+    <h2>Central de Validação da Auditoria</h2>
+    <p class="muted">Selecione um lançamento na tabela Extrato bancário. Registre uma justificativa e o responsável pela pendência. Isto não confirma conciliação nem substitui comprovantes.</p>
+    <div id="auditSelected" class="muted">Nenhuma movimentação selecionada.</div>
+    <div class="detailGrid">
+      <div><label>Situação da análise<select id="auditDecision"><option value="NAO_ANALISADO">Não analisado</option><option value="EM_ANALISE">Em análise</option><option value="SOLICITAR_COMPROVANTE">Solicitar comprovante</option><option value="TRANSFERENCIA_POSSIVEL">Possível transferência</option><option value="JUSTIFICADO">Justificado (sem conciliação)</option><option value="DIVERGENCIA">Divergência</option></select></label></div>
+      <div><label>Responsável pelo esclarecimento<input id="auditOwner" placeholder="Área ou responsável"></label></div>
+      <div><label>Justificativa / evidência<input id="auditReason" placeholder="Informe motivo, documento ou referência"></label></div>
+      <div><label>Identificação da conta (apelido)<input id="auditAccountAlias" placeholder="Ex.: Bradesco Escritório"></label></div>
+    </div>
+    <div class="toolbar"><button class="smallBtn primary" id="auditSave">Salvar análise</button><button class="smallBtn" id="auditExport">Exportar análises CSV</button></div>
+    <div class="muted" id="auditSummary" style="margin-top:10px"></div>
+  </div>
+
   <div class="panel">
     <h2>Pendências</h2>
     <table><thead><tr><th>Data</th><th>Grupo</th><th>Arquivo</th><th>Motivo</th></tr></thead><tbody id="pendingBody"></tbody></table>
@@ -457,8 +471,32 @@ function renderCrossAccounts(){
  document.querySelectorAll('.crossMatchDoc').forEach(btn=>btn.onclick=()=>{state.selectedDoc=btn.dataset.crossDoc;state.selectedBank=btn.dataset.crossBank;const d=state.docs.find(x=>x.id===state.selectedDoc);if(d&&(!d.date||!d.date.startsWith(selectedMonth()))){$('filterMonth').value=d.date.slice(0,7)}$('filterDate').value='';$('filterSearch').value='';$('filterAmount').value='';$('filterBankAccount').value='';$('filterGroup').value='';$('filterStatus').value='';render();fillDoc();document.querySelector('#selectionMsg').scrollIntoView({behavior:'smooth',block:'center'});});
 }
 ['crossAccount','crossType','crossValue'].forEach(id=>$(id).addEventListener('input',renderCrossAccounts));
+function auditSelectedBank(){
+ const b=state.banks.find(x=>x.id===state.selectedBank);
+ $('auditSelected').textContent=b?('Conta '+crossAccountId(b)+' · '+b.date+' · '+money(b.value)+' · '+(b.razao||b.lanc||'')):'Nenhuma movimentação selecionada.';
+ $('auditDecision').value=b?.auditDecision||'NAO_ANALISADO';
+ $('auditOwner').value=b?.auditOwner||'';
+ $('auditReason').value=b?.auditReason||'';
+ $('auditAccountAlias').value=b?.accountAlias||'';
+ const list=periodBanksRaw(),reviewed=list.filter(x=>x.auditDecision&&x.auditDecision!=='NAO_ANALISADO');
+ $('auditSummary').textContent=reviewed.length+' de '+list.length+' movimentações possuem análise registrada no período. A conciliação é controlada separadamente.';
+}
+$('auditSave').onclick=()=>{
+ const b=state.banks.find(x=>x.id===state.selectedBank);
+ if(!b)return alert('Selecione primeiro um lançamento no Extrato bancário.');
+ const decision=$('auditDecision').value,reason=$('auditReason').value.trim(),owner=$('auditOwner').value.trim();
+ if(decision!=='NAO_ANALISADO'&&!reason)return alert('Informe a justificativa ou a evidência para registrar esta análise.');
+ b.auditDecision=decision;b.auditReason=reason;b.auditOwner=owner;b.accountAlias=$('auditAccountAlias').value.trim();
+ b.auditUpdatedAt=new Date().toISOString();save();render();alert('Análise salva neste navegador. O pagamento não foi conciliado automaticamente.');
+};
+$('auditExport').onclick=()=>{
+ const rows=[['DATA','AGENCIA','CONTA','VALOR','HISTORICO','SITUACAO','RESPONSAVEL','JUSTIFICATIVA','ALIAS','ATUALIZADO_EM']];
+ for(const b of periodBanksRaw())rows.push([b.date,b.agencia,b.conta,b.value,b.razao||b.lanc,b.auditDecision||'NAO_ANALISADO',b.auditOwner||'',b.auditReason||'',b.accountAlias||'',b.auditUpdatedAt||'']);
+ const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='auditoria-movimentos-'+selectedMonth()+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+};
 function render(){
- updatePeriodUI();renderCrossAccounts();const ba=$('filterBankAccount'),prev=ba.value;const opts=[...new Set(state.banks.map(crossAccountId))].sort();ba.innerHTML='<option value="">Todas as contas</option>'+opts.map(o=>'<option value="'+o+'">'+o+'</option>').join('');ba.value=opts.includes(prev)?prev:'';
+ updatePeriodUI();renderCrossAccounts();auditSelectedBank();const ba=$('filterBankAccount'),prev=ba.value;const opts=[...new Set(state.banks.map(crossAccountId))].sort();ba.innerHTML='<option value="">Todas as contas</option>'+opts.map(o=>'<option value="'+o+'">'+o+'</option>').join('');ba.value=opts.includes(prev)?prev:'';
  const groups=[...new Set(state.docs.map(d=>d.group))].sort();const cur=$('filterGroup').value;$('filterGroup').innerHTML='<option value="">Todos os grupos</option>'+groups.map(g=>'<option '+(g===cur?'selected':'')+'>'+g+'</option>').join('');
  const docs=currentDocs(),bankRank=currentBanks(),banks=bankRank.map(x=>x.b);const visibleFiles=new Set(docs.map(d=>d.sourceId||d.id));$('docCount').textContent=visibleFiles.size+' arquivo(s) · '+docs.length+' pagamento/item(ns)';$('bankCount').textContent=banks.length+' lançamentos';
  $('docBody').innerHTML=docs.map(d=>'<tr class="row '+(state.selectedDoc===d.id?'sel':'')+'" data-doc="'+d.id+'"><td>'+(d.date||'DATA A REVISAR')+'</td><td>'+d.group+'</td><td>'+d.name+(d.itemNo?' <span class="pill">ITEM '+d.itemNo+'</span>':' <span class="pill warn">NÃO LIDO</span>')+'</td><td>'+(d.benef||'—')+'</td><td>'+(d.value?money(d.value):'—')+'</td><td>'+statusPill(d.status)+'</td></tr>').join('');
