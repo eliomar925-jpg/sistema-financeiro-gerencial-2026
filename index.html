@@ -77,7 +77,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
  <div class="paneHead" style="padding:0 0 10px;border:0"><div><h2 style="margin:0">Cruzamento de contas bancárias</h2><div class="muted">Movimentações entre contas e saídas sem espelho. Pares são sugestões para conferência, não conciliações confirmadas.</div></div></div>
  <div class="filters"><select id="crossAccount"><option value="">Todas as contas</option></select><select id="crossType"><option value="">Todas as movimentações</option><option value="TRANSFERENCIA">Possíveis transferências internas</option><option value="SAIDA">Saídas sem vínculo confirmado</option><option value="UNICO">Candidato único</option><option value="AMBIGUO">Múltiplos candidatos</option><option value="NENHUM">Sem candidato</option><option value="ENTRADA">Entradas bancárias</option></select><input id="crossValue" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Valor em R$ (opcional)" title="Valor exato em reais"></div>
  <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px"><div class="card"><div class="lab">DÉBITOS COM CANDIDATO ÚNICO</div><div class="val green" id="crossUnique">0</div></div><div class="card"><div class="lab">DÉBITOS COM MÚLTIPLOS CANDIDATOS</div><div class="val amber" id="crossAmbiguous">0</div></div><div class="card"><div class="lab">DÉBITOS SEM CANDIDATO</div><div class="val red" id="crossMissing">0</div></div><div class="card"><div class="lab">ESPELHOS SEM DÉBITO CANDIDATO</div><div class="val" id="crossUnmatchedDocs">0</div></div></div>
- <div class="grid" style="grid-template-columns:repeat(3,1fr)"><div class="card"><div class="lab">PARES PARA CONFERIR</div><div class="val" id="crossPairs">0</div></div><div class="card"><div class="lab">SAÍDAS SEM ESPELHO</div><div class="val" id="crossOut">0</div></div><div class="card"><div class="lab">ENTRADAS NO EXTRATO</div><div class="val" id="crossIn">0</div></div></div>
+ <div class="grid" style="grid-template-columns:repeat(3,1fr)"><div class="card"><div class="lab">TRANSFERÊNCIAS POSSÍVEIS · NÃO CONFIRMADAS</div><div class="val" id="crossPairs">0</div></div><div class="card"><div class="lab">SAÍDAS SEM ESPELHO</div><div class="val" id="crossOut">0</div></div><div class="card"><div class="lab">ENTRADAS NO EXTRATO</div><div class="val" id="crossIn">0</div></div></div>
  <div style="max-height:330px;overflow:auto;margin-top:12px"><table><thead><tr><th>Data</th><th>Conta / origem</th><th>Conta / destino possível</th><th>Histórico</th><th>Valor</th><th>Espelho pendente candidato</th><th>Classificação</th></tr></thead><tbody id="crossBody"></tbody></table></div>
  <p class="muted">Transferências sugeridas exigem valor igual, débito e crédito em contas distintas e datas próximas. Sem identificação bancária da contraparte, não é possível confirmar que sejam a mesma operação. Nenhuma sugestão altera os vínculos existentes.</p>
 </div>
@@ -317,7 +317,8 @@ $('processBanks').onclick=async()=>{
       const debits=rows.filter(r=>r.value<0),credits=rows.filter(r=>r.value>0);
       const sum=arr=>arr.reduce((s,r)=>s+Math.abs(r.value),0);
       const accounts=[...new Set(rows.map(r=>(r.agencia||'?')+' / '+(r.conta||'?')))];
-      const overlap=rows.filter(r=>state.banks.some(b=>b.date===r.date&&Math.abs(b.value-r.value)<0.005&&String(b.agencia||'').replace(/\D/g,'')===String(r.agencia||'').replace(/\D/g,'')&&String(b.conta||'').replace(/\D/g,'')===String(r.conta||'').replace(/\D/g,''))).length;
+      const overlap=rows.filter(r=>state.banks.some(b=>b.sourceKey&&b.sourceKey===r.sourceKey||
+        b.date===r.date&&Math.abs(b.value-r.value)<0.005&&String(b.agencia||'').replace(/\D/g,'')===String(r.agencia||'').replace(/\D/g,'')&&String(b.conta||'').replace(/\D/g,'')===String(r.conta||'').replace(/\D/g,''))).length;
       const dates=rows.map(r=>r.date).filter(Boolean).sort();
       const message='CONFIRMAR IMPORTAÇÃO DE PDF\n\nArquivo: '+f.name+
        '\nConta: '+accounts.join(', ')+
@@ -336,8 +337,9 @@ $('processBanks').onclick=async()=>{
      if(!r.date||!r.date.startsWith('2026-')){skipped++;continue}
      const digits=s=>String(s||'').replace(/\D/g,'');
      const dup=state.banks.some(b=>
-       b.date===r.date&&b.value===r.value&&digits(b.agencia)===digits(r.agencia)&&digits(b.conta)===digits(r.conta)&&
-       ((b.doc&&r.doc&&b.doc===r.doc)||(b.razao===r.razao&&b.lanc===r.lanc))
+       (r.sourceKey&&b.sourceKey===r.sourceKey)||
+       (b.date===r.date&&Math.abs(b.value-r.value)<0.005&&digits(b.agencia)===digits(r.agencia)&&digits(b.conta)===digits(r.conta)&&
+        ((b.doc&&r.doc&&norm(b.doc)===norm(r.doc))||(norm(b.razao)===norm(r.razao)&&norm(b.lanc)===norm(r.lanc))))
      );
      if(dup){duplicates++;continue}
      state.banks.push(r);accepted++;
@@ -446,6 +448,7 @@ function bidirectionalDiagnosis(){
  return{debits,matched,bankNoDoc,docs,docNoBank};
 }
 function crossAccountId(b){return String(b.agencia||'').replace(/\D/g,'')+' / '+String(b.conta||'').replace(/\D/g,'')}
+// A mesma movimentação de crédito não pode sugerir confirmação de duas transferências.
 function crossInternalCandidates(){
  const all=periodBanksRaw(),debits=all.filter(b=>b.value<0&&!b.matchedDoc),credits=all.filter(b=>b.value>0),used=new Set(),out=[];
  for(const debit of debits){
