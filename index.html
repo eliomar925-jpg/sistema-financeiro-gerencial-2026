@@ -339,7 +339,7 @@ $('processBanks').onclick=async()=>{
      const dup=state.banks.some(b=>
        (r.sourceKey&&b.sourceKey===r.sourceKey)||
        (b.date===r.date&&Math.abs(b.value-r.value)<0.005&&digits(b.agencia)===digits(r.agencia)&&digits(b.conta)===digits(r.conta)&&
-        ((b.doc&&r.doc&&norm(b.doc)===norm(r.doc))||(norm(b.razao)===norm(r.razao)&&norm(b.lanc)===norm(r.lanc))))
+        ((b.doc&&r.doc)?norm(b.doc)===norm(r.doc):(norm(b.razao)===norm(r.razao)&&norm(b.lanc)===norm(r.lanc))))
      );
      if(dup){duplicates++;continue}
      state.banks.push(r);accepted++;
