@@ -19,10 +19,9 @@ async function parseBankPdf(file){
  const digest=await crypto.subtle.digest("SHA-256",bytes);
  const fileHash=Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,"0")).join("");
  const metadata=await pdf.getMetadata().catch(()=>null);
- let agencia="",conta="",empresa="",rows=[],sawBradesco=/BRADESCO/i.test(metadata?.info?.Title||""),sawStatement=false;
+ let agencia="",conta="",empresa="",date="",rows=[],sawBradesco=/BRADESCO/i.test(metadata?.info?.Title||""),sawStatement=false;
  for(let pageNo=1;pageNo<=pdf.numPages;pageNo++){
   const page=await pdf.getPage(pageNo),items=textItems(await page.getTextContent());
-  let date="";
   const allHeader=items.slice(0,100).map(x=>x.t).join(" ");
   if(items.some(x=>/BRADESCO/i.test(x.t)))sawBradesco=true;
   if(/EXTRATO\s+(MENSAL|DE:|POR PER[IÍ]ODO)/i.test(allHeader))sawStatement=true;
@@ -35,6 +34,8 @@ async function parseBankPdf(file){
   const candidates=items.filter(x=>x.x>315&&x.x<490&&amountRE.test(x.t));
   for(const amount of candidates){
    for(const d of dates){if(d.y<=amount.y+1.6)date=iso(d.t)}
+   // Extratos Bradesco podem continuar uma mesma data na página seguinte sem repeti-la.
+   // A data só é herdada dentro deste arquivo; permanece sujeita à revisão de importação.
    if(!date)continue;
    const sameLine=items.filter(x=>Math.abs(x.y-amount.y)<2);
    if(sameLine.some(x=>x.x<220&&/\bTOTAL\b/i.test(x.t)))continue;
