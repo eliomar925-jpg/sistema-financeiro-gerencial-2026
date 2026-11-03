@@ -13,11 +13,16 @@ function nearby(items,y,min,max){return items.filter(x=>x.x>=85&&x.x<249&&x.y-y>
 async function parseBankPdf(file){
  if(!window.pdfjsLib)throw Error("Biblioteca de leitura PDF indisponível. Recarregue a página e tente novamente.");
  pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
- const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+ const bytes=await file.arrayBuffer();
+ const pdf=await pdfjsLib.getDocument({data:new Uint8Array(bytes)}).promise;
+ // Identidade por conteúdo: a mesma página/linha do mesmo PDF nunca é importada duas vezes.
+ const digest=await crypto.subtle.digest("SHA-256",bytes);
+ const fileHash=Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,"0")).join("");
  const metadata=await pdf.getMetadata().catch(()=>null);
- let agencia="",conta="",empresa="",date="",rows=[],sawBradesco=/BRADESCO/i.test(metadata?.info?.Title||""),sawStatement=false;
+ let agencia="",conta="",empresa="",rows=[],sawBradesco=/BRADESCO/i.test(metadata?.info?.Title||""),sawStatement=false;
  for(let pageNo=1;pageNo<=pdf.numPages;pageNo++){
   const page=await pdf.getPage(pageNo),items=textItems(await page.getTextContent());
+  let date="";
   const allHeader=items.slice(0,100).map(x=>x.t).join(" ");
   if(items.some(x=>/BRADESCO/i.test(x.t)))sawBradesco=true;
   if(/EXTRATO\s+(MENSAL|DE:|POR PER[IÍ]ODO)/i.test(allHeader))sawStatement=true;
@@ -42,7 +47,8 @@ async function parseBankPdf(file){
    const raw=brValue(amount.t),value=raw<0?raw:(amount.x>=405?-raw:raw);
    if(!Number.isFinite(value)||!value)continue;
    rows.push({
-    id:"pdf-"+pageNo+"-"+rows.length+"-"+Math.random().toString(36).slice(2,8),
+    id:"pdf-"+fileHash.slice(0,16)+"-"+pageNo+"-"+rows.length,
+    sourceKey:"pdf-sha256:"+fileHash+":p"+pageNo+":row"+rows.length,
     file:file.name,empresa,agencia,conta,date,
     lanc:title,razao:benef.replace(/^(DES|REM|DEST|REMET)\s*:\s*/i,"").trim(),
     doc,value,matchedDoc:null,sourceFormat:"PDF",pdfPage:pageNo,
