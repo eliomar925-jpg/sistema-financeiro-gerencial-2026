@@ -13,7 +13,11 @@ function nearby(items,y,min,max){return items.filter(x=>x.x>=85&&x.x<249&&x.y-y>
 async function parseBankPdf(file){
  if(!window.pdfjsLib)throw Error("Biblioteca de leitura PDF indisponível. Recarregue a página e tente novamente.");
  pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
- const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+ const bytes=await file.arrayBuffer();
+ const pdf=await pdfjsLib.getDocument({data:new Uint8Array(bytes)}).promise;
+ // Identidade por conteúdo: a mesma página/linha do mesmo PDF nunca é importada duas vezes.
+ const digest=await crypto.subtle.digest("SHA-256",bytes);
+ const fileHash=Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,"0")).join("");
  const metadata=await pdf.getMetadata().catch(()=>null);
  let agencia="",conta="",empresa="",date="",rows=[],sawBradesco=/BRADESCO/i.test(metadata?.info?.Title||""),sawStatement=false;
  for(let pageNo=1;pageNo<=pdf.numPages;pageNo++){
@@ -30,6 +34,8 @@ async function parseBankPdf(file){
   const candidates=items.filter(x=>x.x>315&&x.x<490&&amountRE.test(x.t));
   for(const amount of candidates){
    for(const d of dates){if(d.y<=amount.y+1.6)date=iso(d.t)}
+   // Extratos Bradesco podem continuar uma mesma data na página seguinte sem repeti-la.
+   // A data só é herdada dentro deste arquivo; permanece sujeita à revisão de importação.
    if(!date)continue;
    const sameLine=items.filter(x=>Math.abs(x.y-amount.y)<2);
    if(sameLine.some(x=>x.x<220&&/\bTOTAL\b/i.test(x.t)))continue;
@@ -42,7 +48,8 @@ async function parseBankPdf(file){
    const raw=brValue(amount.t),value=raw<0?raw:(amount.x>=405?-raw:raw);
    if(!Number.isFinite(value)||!value)continue;
    rows.push({
-    id:"pdf-"+pageNo+"-"+rows.length+"-"+Math.random().toString(36).slice(2,8),
+    id:"pdf-"+fileHash.slice(0,16)+"-"+pageNo+"-"+rows.length,
+    sourceKey:"pdf-sha256:"+fileHash+":p"+pageNo+":row"+rows.length,
     file:file.name,empresa,agencia,conta,date,
     lanc:title,razao:benef.replace(/^(DES|REM|DEST|REMET)\s*:\s*/i,"").trim(),
     doc,value,matchedDoc:null,sourceFormat:"PDF",pdfPage:pageNo,

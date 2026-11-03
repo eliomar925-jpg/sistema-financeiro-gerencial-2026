@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Conciliação Diária de Pagamentos · 2026</title>
+<title>Conciliação Financeira · Outubro 2026</title>
 <style>
 :root{--navy:#0d1b2a;--navy2:#17324d;--bg:#f3f6f9;--card:#fff;--line:#dfe6ed;--text:#182433;--muted:#6f7b88;--green:#16866f;--red:#cc4d56;--amber:#c88700;--blue:#2176ae}
 *{box-sizing:border-box}body{margin:0;font:14px system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}button,input,select{font:inherit}
@@ -15,48 +15,66 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 .modal{position:fixed;inset:0;background:#08121db5;display:none;align-items:center;justify-content:center;padding:20px;z-index:20}.modal.on{display:flex}.modalBox{width:min(760px,100%);max-height:88vh;overflow:auto;background:#fff;border-radius:10px;padding:20px}.modalHead{display:flex;justify-content:space-between;gap:12px;align-items:center}.close{border:0;background:transparent;font-size:22px;cursor:pointer}.drop{border:2px dashed var(--line);border-radius:8px;padding:24px;text-align:center;margin:14px 0}.fileLine{padding:8px 0;border-bottom:1px solid var(--line)}.foot{color:var(--muted);font-size:11px;margin-top:16px}
 @media(max-width:980px){.workspace{grid-template-columns:1fr}.grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){.main{padding:14px}.top{padding:16px}.grid{grid-template-columns:1fr}.detailGrid{grid-template-columns:1fr}}
 .row.sel td{background:#dbeeff!important;font-weight:700;border-top:2px solid #2176ae;border-bottom:2px solid #2176ae}.row.sel td:first-child{border-left:5px solid #2176ae}.row.suggest:not(.sel) td{background:#fff9e9}.amountEmphasis{font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}.comparison{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#f8fafc}.comparison>div{min-width:0}.comparison strong{display:block;font-size:19px;margin:6px 0}.comparison small{color:var(--muted)}@media(max-width:650px){.comparison{grid-template-columns:1fr}}
+/* Interface enxuta; detalhes técnicos continuam disponíveis. */
+.main{display:flex;flex-direction:column;gap:14px}
+.main>.panel,.main>.workspace,.main>.filters{margin-top:0;margin-bottom:0}
+.main>.simple-actions{order:0}.main>.filters{order:1}.main>.simple-summary{order:2}
+.main>.workspace{order:3}.main>.selection-panel{order:4}.main>.advanced-section{order:5}.main>.foot{order:6}
+body:not(.show-advanced) .advanced-section{display:none}
+body:not(.show-advanced-filters) .filters>:not(#filterMonth):not(#filterSearch):not(#toggleFilters){display:none}
+.filters{align-items:center}.filters #filterSearch{flex:1;min-width:180px}
+.simple-summary .grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.simple-summary .card{box-shadow:none;border:0;background:#f5f8fb}
+.simple-summary .lab{font-size:11px;letter-spacing:.02em}
+.workspace{grid-template-columns:1fr}.workspace .pane:nth-child(2){display:none}
+body.bank-open .workspace{grid-template-columns:1fr 1fr}
+body.bank-open .workspace .pane:nth-child(2){display:block}
+body:not(.has-selection) .selection-panel{display:none}
+.simple-actions{padding:14px 18px}.simple-actions h2{margin:0;font-size:18px}
+.simple-actions .toolbar{margin-top:8px}.top{padding:16px 24px}
+.brand h1{font-size:22px}.brand p{font-size:12px}
+@media(max-width:980px){body.bank-open .workspace{grid-template-columns:1fr}.simple-summary .grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.top{align-items:flex-start;flex-direction:column}.simple-summary .grid{grid-template-columns:repeat(2,minmax(0,1fr))}.simple-summary .val{font-size:23px}}
 </style>
 </head>
 <body>
 <div class="app">
 <header class="top">
   <div class="brand">
-    <h1>Conciliação Diária de Pagamentos · <span id="headerPeriod">Setembro/2026</span></h1>
-    <p>Período selecionado: <span id="headerScope">01/09/2026 a 30/09/2026</span> · WhatsApp → espelho → extrato → conciliação</p>
+    <h1>Conciliação Financeira · <span id="headerPeriod">Outubro/2026</span></h1>
+    <p>Salvador Produções · Sofá da Sogra · <span id="headerScope">01/10/2026 a 31/10/2026</span></p>
   </div>
   <div class="actions">
-    <button class="btn" id="openDocs">Carregar espelhos</button>
-    <button class="btn" id="openBanks">Carregar extratos</button>
-    <button class="btn" id="openClear">Limpar arquivos</button>
-    <button class="btn primary" id="saveWork">Salvar trabalho</button>
+    <button class="btn" id="openDocs">Importar espelhos</button>
+    <button class="btn" id="openBanks">Importar extrato</button>
+    <button class="btn" id="openClear" style="display:none">Limpar arquivos</button>
+    <button class="btn primary" id="saveWork" style="display:none">Salvar trabalho</button>
   </div>
 </header>
 
 <main class="main">
-  <div class="panel" style="margin-top:0;margin-bottom:14px"><b>Conciliação em 3 passos:</b> 1. Carregue espelhos e extratos. 2. Confira os candidatos. 3. Valide ou registre a pendência.<div class="toolbar"><button class="smallBtn" id="quickReview">Conferir pagamentos</button><button class="smallBtn primary" id="quickAudit">Registrar análise</button></div></div>
+  <div class="panel simple-actions"><h2>Pagamentos de outubro</h2><div class="muted">Selecione um pagamento para conferir a correspondência no banco.</div><div class="toolbar"><button class="smallBtn primary" id="quickReview">Conferir pagamentos</button><button class="smallBtn" id="toggleBankView" aria-expanded="false">Mostrar extrato</button><button class="smallBtn" id="toggleAdvanced" aria-expanded="false">Ver detalhes</button><button class="smallBtn" id="quickAudit" style="display:none">Registrar análise</button></div></div>
   <div class="filters">
-    <input type="month" id="filterMonth" min="2026-01" max="2026-12" value="2026-09" title="Mês de trabalho">
+    <input type="month" id="filterMonth" min="2026-01" max="2026-12" value="2026-10" title="Mês de trabalho">
     <input type="date" id="filterDate" min="2026-01-01" max="2026-12-31" title="Dia específico (opcional)">
     <select id="filterGroup"><option value="">Todos os grupos</option></select>
     <select id="filterStatus"><option value="">Todos os status</option><option>PENDENTE</option><option>AGUARDANDO EXTRATO</option><option>CONCILIADO</option><option>DIVERGÊNCIA</option></select>
     <input id="filterSearch" placeholder="Buscar favorecido, arquivo ou histórico" title="Busca por texto"><input id="filterAmount" type="number" min="0" step="0.01" placeholder="Valor exato R$"><select id="filterBankAccount"><option value="">Todas as contas</option></select><button class="smallBtn" id="todayBtn">Hoje</button>
-    <button class="smallBtn" id="clearFilters">Limpar filtros</button>
+    <button class="smallBtn" id="clearFilters">Limpar filtros</button><button class="smallBtn" id="toggleFilters" aria-expanded="false">Mais filtros</button>
   </div>
 
-  <div class="panel" style="margin-top:0">
-    <h2 style="margin-bottom:4px">Controle do mês</h2>
-    <p class="muted" style="margin-top:0">O fechamento operacional é acompanhado por estes seis números.</p>
+  <div class="panel simple-summary"><h2 style="margin:0 0 14px">Resumo do mês</h2>
     <div class="grid">
-      <div class="card kpiCard" data-kpi="files"><div class="lab">ESPELHOS RECEBIDOS</div><div class="val" id="kFiles">0</div><div class="muted" id="kFilesSub">0 aguardando leitura</div></div>
+      <div class="card kpiCard" data-kpi="files" style="display:none"><div class="lab">ESPELHOS RECEBIDOS</div><div class="val" id="kFiles">0</div><div class="muted" id="kFilesSub">0 aguardando leitura</div></div>
       <div class="card kpiCard" data-kpi="identified"><div class="lab">PAGAMENTOS IDENTIFICADOS</div><div class="val" id="kDocs">0</div><div class="muted">pagamentos extraídos/revisados</div></div>
       <div class="card kpiCard" data-kpi="CONCILIADO"><div class="lab">CONCILIADOS</div><div class="val green" id="kOk">0</div><div class="muted" id="kOkSub">0% dos identificados</div></div>
-      <div class="card kpiCard" data-kpi="PENDENTE"><div class="lab">PENDENTES</div><div class="val amber" id="kPend">0</div><div class="muted">identificados sem fechamento</div></div>
-      <div class="card kpiCard" data-kpi="DIVERGÊNCIA"><div class="lab">DIVERGÊNCIAS</div><div class="val red" id="kDiv">0</div><div class="muted">exigem revisão</div></div>
-      <div class="card kpiCard" data-kpi="AGUARDANDO EXTRATO"><div class="lab">AGUARDANDO EXTRATO</div><div class="val amber" id="kAwait">0</div><div class="muted">sem evidência bancária suficiente</div></div>
+      <div class="card kpiCard" data-kpi="all-pending"><div class="lab">PENDENTES</div><div class="val amber" id="kPend">0</div><div class="muted">não conciliados</div></div><div class="card kpiCard" data-kpi="transfers"><div class="lab">TRANSFERÊNCIAS POSSÍVEIS</div><div class="val" id="kTransferSimple">0</div><div class="muted">sem confirmação automática</div></div>
+      <div class="card kpiCard" data-kpi="DIVERGÊNCIA" style="display:none"><div class="lab">DIVERGÊNCIAS</div><div class="val red" id="kDiv">0</div><div class="muted">exigem revisão</div></div>
+      <div class="card kpiCard" data-kpi="AGUARDANDO EXTRATO" style="display:none"><div class="lab">AGUARDANDO EXTRATO</div><div class="val amber" id="kAwait">0</div><div class="muted">sem evidência bancária suficiente</div></div>
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel advanced-section">
     <div class="paneHead" style="padding:0 0 10px;border:0">
       <div><h2 style="margin:0">Conferência bidirecional</h2><div class="muted">Validação para responder: o que estava no espelho foi encontrado no banco e o que saiu do banco possui espelho?</div></div>
       <button class="smallBtn" id="exportDiagBtn">Exportar diagnóstico</button>
@@ -73,21 +91,21 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     </div>
   </div>
 
-  <div class="panel" id="bankCrossPanel">
+  <div class="panel advanced-section" id="bankCrossPanel">
  <div class="paneHead" style="padding:0 0 10px;border:0"><div><h2 style="margin:0">Cruzamento de contas bancárias</h2><div class="muted">Movimentações entre contas e saídas sem espelho. Pares são sugestões para conferência, não conciliações confirmadas.</div></div></div>
  <div class="filters"><select id="crossAccount"><option value="">Todas as contas</option></select><select id="crossType"><option value="">Todas as movimentações</option><option value="TRANSFERENCIA">Possíveis transferências internas</option><option value="SAIDA">Saídas sem vínculo confirmado</option><option value="UNICO">Candidato único</option><option value="AMBIGUO">Múltiplos candidatos</option><option value="NENHUM">Sem candidato</option><option value="ENTRADA">Entradas bancárias</option></select><input id="crossValue" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Valor em R$ (opcional)" title="Valor exato em reais"></div>
  <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px"><div class="card"><div class="lab">DÉBITOS COM CANDIDATO ÚNICO</div><div class="val green" id="crossUnique">0</div></div><div class="card"><div class="lab">DÉBITOS COM MÚLTIPLOS CANDIDATOS</div><div class="val amber" id="crossAmbiguous">0</div></div><div class="card"><div class="lab">DÉBITOS SEM CANDIDATO</div><div class="val red" id="crossMissing">0</div></div><div class="card"><div class="lab">ESPELHOS SEM DÉBITO CANDIDATO</div><div class="val" id="crossUnmatchedDocs">0</div></div></div>
- <div class="grid" style="grid-template-columns:repeat(3,1fr)"><div class="card"><div class="lab">PARES PARA CONFERIR</div><div class="val" id="crossPairs">0</div></div><div class="card"><div class="lab">SAÍDAS SEM ESPELHO</div><div class="val" id="crossOut">0</div></div><div class="card"><div class="lab">ENTRADAS NO EXTRATO</div><div class="val" id="crossIn">0</div></div></div>
+ <div class="grid" style="grid-template-columns:repeat(3,1fr)"><div class="card"><div class="lab">TRANSFERÊNCIAS POSSÍVEIS · NÃO CONFIRMADAS</div><div class="val" id="crossPairs">0</div></div><div class="card"><div class="lab">SAÍDAS SEM ESPELHO</div><div class="val" id="crossOut">0</div></div><div class="card"><div class="lab">ENTRADAS NO EXTRATO</div><div class="val" id="crossIn">0</div></div></div>
  <div style="max-height:330px;overflow:auto;margin-top:12px"><table><thead><tr><th>Data</th><th>Conta / origem</th><th>Conta / destino possível</th><th>Histórico</th><th>Valor</th><th>Espelho pendente candidato</th><th>Classificação</th></tr></thead><tbody id="crossBody"></tbody></table></div>
  <p class="muted">Transferências sugeridas exigem valor igual, débito e crédito em contas distintas e datas próximas. Sem identificação bancária da contraparte, não é possível confirmar que sejam a mesma operação. Nenhuma sugestão altera os vínculos existentes.</p>
 </div>
 
-<div class="panel">
+<div class="panel advanced-section">
     <h2>Fluxo operacional</h2>
     <p class="muted"><b>Espelho recebido</b> → leitura → <b>pagamento identificado</b> → conciliação → <b>conciliado</b>, <b>pendente</b>, <b>divergência</b> ou <b>aguardando extrato</b>.</p>
   </div>
 
-  <div class="panel">
+  <div class="panel advanced-section">
     <div class="paneHead" style="padding:0 0 12px;border:0">
       <div><h2 style="margin:0">Revisão automática</h2><div class="muted">O sistema sugere o melhor lançamento bancário para cada pagamento. Match forte exige valor exato, mesma data e compatibilidade de beneficiário. Possíveis e conflitos ficam para revisão manual.</div></div>
       <div><button class="smallBtn" id="confirmStrongBtn">Confirmar fortes</button> <button class="smallBtn primary" id="reviewBtn">Analisar correspondências</button></div>
@@ -119,7 +137,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     </section>
   </div>
 
-  <div class="panel">
+  <div class="panel selection-panel">
     <h2>Conciliação selecionada</h2>
     <div id="selectionMsg" class="muted">Selecione um espelho e um lançamento bancário.</div><div id="selectionCompare" style="margin-top:10px"></div>
 <div id="lotPanel" class="panel" style="display:none;margin-top:12px">
@@ -165,7 +183,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     </div>
   </div>
 
-  <div class="panel" id="auditPanel">
+  <div class="panel advanced-section" id="auditPanel">
     <h2>Central de Validação da Auditoria</h2>
     <p class="muted">Selecione um lançamento na tabela Extrato bancário. Registre uma justificativa e o responsável pela pendência. Isto não confirma conciliação nem substitui comprovantes.</p>
     <div id="auditSelected" class="muted">Nenhuma movimentação selecionada.</div>
@@ -179,7 +197,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <div class="muted" id="auditSummary" style="margin-top:10px"></div>
   </div>
 
-  <div class="panel">
+  <div class="panel advanced-section">
     <h2>Pendências</h2>
     <table><thead><tr><th>Data</th><th>Grupo</th><th>Arquivo</th><th>Motivo</th></tr></thead><tbody id="pendingBody"></tbody></table>
   </div>
@@ -317,7 +335,8 @@ $('processBanks').onclick=async()=>{
       const debits=rows.filter(r=>r.value<0),credits=rows.filter(r=>r.value>0);
       const sum=arr=>arr.reduce((s,r)=>s+Math.abs(r.value),0);
       const accounts=[...new Set(rows.map(r=>(r.agencia||'?')+' / '+(r.conta||'?')))];
-      const overlap=rows.filter(r=>state.banks.some(b=>b.date===r.date&&Math.abs(b.value-r.value)<0.005&&String(b.agencia||'').replace(/\D/g,'')===String(r.agencia||'').replace(/\D/g,'')&&String(b.conta||'').replace(/\D/g,'')===String(r.conta||'').replace(/\D/g,''))).length;
+      const overlap=rows.filter(r=>state.banks.some(b=>b.sourceKey&&b.sourceKey===r.sourceKey||
+        b.date===r.date&&Math.abs(b.value-r.value)<0.005&&String(b.agencia||'').replace(/\D/g,'')===String(r.agencia||'').replace(/\D/g,'')&&String(b.conta||'').replace(/\D/g,'')===String(r.conta||'').replace(/\D/g,''))).length;
       const dates=rows.map(r=>r.date).filter(Boolean).sort();
       const message='CONFIRMAR IMPORTAÇÃO DE PDF\n\nArquivo: '+f.name+
        '\nConta: '+accounts.join(', ')+
@@ -336,8 +355,9 @@ $('processBanks').onclick=async()=>{
      if(!r.date||!r.date.startsWith('2026-')){skipped++;continue}
      const digits=s=>String(s||'').replace(/\D/g,'');
      const dup=state.banks.some(b=>
-       b.date===r.date&&b.value===r.value&&digits(b.agencia)===digits(r.agencia)&&digits(b.conta)===digits(r.conta)&&
-       ((b.doc&&r.doc&&b.doc===r.doc)||(b.razao===r.razao&&b.lanc===r.lanc))
+       (r.sourceKey&&b.sourceKey===r.sourceKey)||
+       (b.date===r.date&&Math.abs(b.value-r.value)<0.005&&digits(b.agencia)===digits(r.agencia)&&digits(b.conta)===digits(r.conta)&&
+        ((b.doc&&r.doc)?norm(b.doc)===norm(r.doc):(norm(b.razao)===norm(r.razao)&&norm(b.lanc)===norm(r.lanc))))
      );
      if(dup){duplicates++;continue}
      state.banks.push(r);accepted++;
@@ -416,7 +436,7 @@ function reviewRows(){
  return rows.map(x=>({...x,conflict:x.m&&(use.get(x.m.b.id)||0)>1}));
 }
 const monthNames=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-function selectedMonth(){return $('filterMonth').value||'2026-09'}
+function selectedMonth(){return $('filterMonth').value||'2026-10'}
 function updatePeriodUI(){
  const ym=selectedMonth(),[y,m]=ym.split('-').map(Number),last=new Date(y,m,0).getDate(),label=monthNames[m-1]+'/'+y;
  $('headerPeriod').textContent=label;$('headerScope').textContent='01/'+String(m).padStart(2,'0')+'/'+y+' a '+String(last).padStart(2,'0')+'/'+String(m).padStart(2,'0')+'/'+y;
@@ -446,6 +466,7 @@ function bidirectionalDiagnosis(){
  return{debits,matched,bankNoDoc,docs,docNoBank};
 }
 function crossAccountId(b){return String(b.agencia||'').replace(/\D/g,'')+' / '+String(b.conta||'').replace(/\D/g,'')}
+// A mesma movimentação de crédito não pode sugerir confirmação de duas transferências.
 function crossInternalCandidates(){
  const all=periodBanksRaw(),debits=all.filter(b=>b.value<0&&!b.matchedDoc),credits=all.filter(b=>b.value>0),used=new Set(),out=[];
  for(const debit of debits){
@@ -476,7 +497,7 @@ function renderCrossAccounts(){
  const sel=$('crossAccount').value,allAccounts=[...new Set(state.banks.map(crossAccountId))].sort();
  $('crossAccount').innerHTML='<option value="">Todas as contas</option>'+allAccounts.map(x=>'<option value="'+x+'">'+x+'</option>').join('');
  $('crossAccount').value=allAccounts.includes(sel)?sel:'';
- $('crossPairs').textContent=pairs.length;$('crossOut').textContent=debits.length;$('crossIn').textContent=credits.length;
+ $('crossPairs').textContent=pairs.length;$('kTransferSimple').textContent=pairs.length;$('crossOut').textContent=debits.length;$('crossIn').textContent=credits.length;
  const type=$('crossType').value,amount=Number($('crossValue').value||0),account=$('crossAccount').value;
  const inPair=new Set(pairs.map(p=>p.debit.id));
  const rows=[];
@@ -516,14 +537,15 @@ $('auditExport').onclick=()=>{
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='auditoria-movimentos-'+selectedMonth()+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 };
 function render(){
+ document.body.classList.toggle("has-selection",!!state.selectedDoc);
  updatePeriodUI();renderCrossAccounts();auditSelectedBank();selectionText();const ba=$('filterBankAccount'),prev=ba.value;const opts=[...new Set(state.banks.map(crossAccountId))].sort();ba.innerHTML='<option value="">Todas as contas</option>'+opts.map(o=>'<option value="'+o+'">'+o+'</option>').join('');ba.value=opts.includes(prev)?prev:'';
  const groups=[...new Set(state.docs.map(d=>d.group))].sort();const cur=$('filterGroup').value;$('filterGroup').innerHTML='<option value="">Todos os grupos</option>'+groups.map(g=>'<option '+(g===cur?'selected':'')+'>'+g+'</option>').join('');
- const docs=currentDocs(),bankRank=currentBanks(),banks=bankRank.map(x=>x.b);const visibleFiles=new Set(docs.map(d=>d.sourceId||d.id));$('docCount').textContent=visibleFiles.size+' arquivo(s) · '+docs.length+' pagamento/item(ns)';$('bankCount').textContent=banks.length+' lançamentos';
+ const docs=currentDocs().filter(d=>!document.body.classList.contains('only-pending')||d.status!=='CONCILIADO'),bankRank=currentBanks(),banks=bankRank.map(x=>x.b);const visibleFiles=new Set(docs.map(d=>d.sourceId||d.id));$('docCount').textContent=visibleFiles.size+' arquivo(s) · '+docs.length+' pagamento/item(ns)';$('bankCount').textContent=banks.length+' lançamentos';
  $('docBody').innerHTML=docs.map(d=>'<tr class="row '+(state.selectedDoc===d.id?'sel':'')+'" data-doc="'+d.id+'"><td>'+(d.date||'DATA A REVISAR')+'</td><td>'+d.group+'</td><td>'+d.name+(d.itemNo?' <span class="pill">ITEM '+d.itemNo+'</span>':' <span class="pill warn">NÃO LIDO</span>')+'</td><td>'+(d.benef||'—')+'</td><td>'+(d.value?'<span class="amountEmphasis">'+money(d.value)+'</span>':'—')+'</td><td>'+statusPill(d.status)+'</td></tr>').join('');
  $('bankBody').innerHTML=bankRank.map(({b,s})=>{const lot=isLotDoc(state.docs.find(x=>x.id===state.selectedDoc)),multi=(state.selectedBanks||[]).includes(b.id);return '<tr class="row '+((lot?multi:state.selectedBank===b.id)?'sel ':'')+(s&&!b.matchedDoc?'suggest':'')+'" data-bank="'+b.id+'"><td>'+b.date+'</td><td>'+b.agencia+' / '+b.conta+'</td><td>'+(b.razao||b.lanc)+(b.sourceFormat==='PDF'?'<div class="muted">PDF · pág. '+b.pdfPage+' · revisar</div>':'')+'</td><td class="'+(b.value<0?'red':'green')+'"><span class="amountEmphasis">'+money(b.value)+'</span></td><td>'+(lot?(multi?'<span class="score">SELECIONADO</span>':'—'):(b.matchedDoc?'—':s?'<span class="score">'+(s>=95?'FORTE':s>=80?'POSSÍVEL':'FRACO')+' · '+s+'</span>':'—'))+'</td><td>'+(b.matchedDoc?'<span class="pill ok">CONCILIADO</span>':'<span class="pill warn">ABERTO</span>')+'</td></tr>'}).join('');
- document.querySelectorAll('[data-doc]').forEach(r=>r.onclick=()=>{if(state.selectedDoc!==r.dataset.doc)state.selectedBanks=[];state.selectedDoc=r.dataset.doc;state.selectedBank=null;$('filterBankAccount').value='';$('filterSearch').value='';$('filterAmount').value='';$('filterDate').value='';render();fillDoc();selectionText()});document.querySelectorAll('[data-bank]').forEach(r=>r.onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc),id=r.dataset.bank;if(isLotDoc(d)){const b=state.banks.find(x=>x.id===id);if(!b||b.value>=0||(b.matchedDoc&&b.matchedDoc!==d.id))return;state.selectedBanks=state.selectedBanks||[];state.selectedBanks=state.selectedBanks.includes(id)?state.selectedBanks.filter(x=>x!==id):[...state.selectedBanks,id];state.selectedBank=null}else{state.selectedBank=id;state.selectedBanks=[]}render();selectionText();fillDoc()});
+ document.querySelectorAll('[data-doc]').forEach(r=>r.onclick=()=>{if(state.selectedDoc!==r.dataset.doc)state.selectedBanks=[];state.selectedDoc=r.dataset.doc;state.selectedBank=null;document.body.classList.add('bank-open');$('toggleBankView').textContent='Ocultar extrato';$('toggleBankView').setAttribute('aria-expanded','true');$('filterBankAccount').value='';$('filterSearch').value='';$('filterAmount').value='';$('filterDate').value='';render();fillDoc();selectionText()});document.querySelectorAll('[data-bank]').forEach(r=>r.onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc),id=r.dataset.bank;if(isLotDoc(d)){const b=state.banks.find(x=>x.id===id);if(!b||b.value>=0||(b.matchedDoc&&b.matchedDoc!==d.id))return;state.selectedBanks=state.selectedBanks||[];state.selectedBanks=state.selectedBanks.includes(id)?state.selectedBanks.filter(x=>x!==id):[...state.selectedBanks,id];state.selectedBank=null}else{state.selectedBank=id;state.selectedBanks=[]}render();selectionText();fillDoc()});
  const mo=selectedMonth(),all=state.docs.filter(x=>x.date&&x.date.startsWith(mo)),files=new Set(all.map(x=>x.sourceId||x.id)),identified=all.filter(x=>x.itemNo||x.value),unreadSources=new Set(all.filter(x=>!x.itemNo&&!x.value&&!x.ocrDone).map(x=>x.sourceId||x.id)),readNoPaymentSources=new Set(all.filter(x=>!x.itemNo&&!x.value&&x.ocrDone).map(x=>x.sourceId||x.id)),ok=identified.filter(x=>x.status==='CONCILIADO').length,pend=identified.filter(x=>x.status==='PENDENTE').length,div=identified.filter(x=>x.status==='DIVERGÊNCIA').length,awaiting=identified.filter(x=>x.status==='AGUARDANDO EXTRATO').length;
- $('kFiles').textContent=files.size;$('kFilesSub').textContent=unreadSources.size+' aguardando leitura'+(readNoPaymentSources.size?' · '+readNoPaymentSources.size+' lido(s) sem pagamento identificado':'');$('kDocs').textContent=identified.length;$('kOk').textContent=ok;$('kOkSub').textContent=(identified.length?Math.round(ok/identified.length*100):0)+'% dos identificados';$('kPend').textContent=pend;$('kDiv').textContent=div;$('kAwait').textContent=awaiting;
+ $('kFiles').textContent=files.size;$('kFilesSub').textContent=unreadSources.size+' aguardando leitura'+(readNoPaymentSources.size?' · '+readNoPaymentSources.size+' lido(s) sem pagamento identificado':'');$('kDocs').textContent=identified.length;$('kOk').textContent=ok;$('kOkSub').textContent=(identified.length?Math.round(ok/identified.length*100):0)+'% dos identificados';$('kPend').textContent=identified.length-ok;$('kDiv').textContent=div;$('kAwait').textContent=awaiting;
  const bd=bidirectionalDiagnosis();$('kBankDebits').textContent=bd.debits.length;$('kBankMatched').textContent=bd.matched.length;$('kBankMatchedSub').textContent=(bd.debits.length?Math.round(bd.matched.length/bd.debits.length*100):0)+'% das saídas';$('kBankNoDoc').textContent=bd.bankNoDoc.length;$('kDocNoBank').textContent=bd.docNoBank.length;
  $('bankNoDocBody').innerHTML=bd.bankNoDoc.length?bd.bankNoDoc.map(b=>'<tr><td>'+b.date+'</td><td>'+b.agencia+' / '+b.conta+'</td><td>'+(b.razao||b.lanc)+'</td><td>'+money(Math.abs(b.value))+'</td></tr>').join(''):'<tr><td colspan="4" class="muted">Nenhuma saída bancária sem espelho.</td></tr>';
  $('docNoBankBody').innerHTML=bd.docNoBank.length?bd.docNoBank.map(d=>'<tr><td>'+d.date+'</td><td>'+d.group+'</td><td>'+d.name+(d.itemNo?' · item '+d.itemNo:'')+'</td><td>'+money(Math.abs(d.value||0))+'</td></tr>').join(''):'<tr><td colspan="4" class="muted">Nenhum pagamento identificado sem evidência bancária.</td></tr>';
@@ -620,9 +642,18 @@ $('clearAllBtn').onclick=async()=>{if(!confirm('Limpar TODO o trabalho de 2026 e
 $('confirmStrongBtn').onclick=()=>alert('Confirmação em lote desabilitada: valide cada débito individualmente para manter a trilha de auditoria.');
 $('reviewBtn').onclick=()=>{render();const rr=reviewRows(),fortes=rr.filter(x=>x.m&&x.m.s>=95&&!x.conflict).length,possiveis=rr.filter(x=>x.m&&x.m.s>=80&&x.m.s<95&&!x.conflict).length,sem=rr.filter(x=>!x.m||x.m.s<80||x.conflict).length;alert('Análise concluída: '+fortes+' match(es) forte(s), '+possiveis+' possível(is) e '+sem+' sem correspondência segura. Nenhum pagamento foi conciliado automaticamente.');};
 $('exportDiagBtn').onclick=()=>{const bd=bidirectionalDiagnosis(),rows=[['TIPO','DATA','GRUPO/CONTA','DESCRICAO','VALOR']];for(const b of bd.bankNoDoc)rows.push(['BANCO SEM ESPELHO',b.date,b.agencia+' / '+b.conta,b.razao||b.lanc,Math.abs(b.value)]);for(const d of bd.docNoBank)rows.push(['ESPELHO SEM BANCO',d.date,d.group,d.name+(d.itemNo?' item '+d.itemNo:''),Math.abs(d.value||0)]);const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n'),blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='diagnostico-conciliacao-'+selectedMonth()+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
-document.querySelectorAll('[data-kpi]').forEach(card=>card.onclick=()=>{const k=card.dataset.kpi;if(k==='files'){ $('filterStatus').value=''; }else if(k==='identified'){ $('filterStatus').value=''; }else{ $('filterStatus').value=k; } render();document.querySelector('.workspace').scrollIntoView({behavior:'smooth',block:'start'});});
-$('filterMonth').onchange=()=>{$('filterDate').value='';state.selectedDoc=null;state.selectedBank=null;state.selectedBanks=[];render()};['filterDate','filterGroup','filterStatus','filterBankAccount','filterSearch','filterAmount'].forEach(id=>$(id).addEventListener('input',render));$('clearFilters').onclick=()=>{$('filterDate').value='';$('filterGroup').value='';$('filterStatus').value='';$('filterSearch').value='';$('filterAmount').value='';$('filterBankAccount').value='';render()};$('todayBtn').onclick=()=>{const d=new Date().toISOString().slice(0,10);if(d.startsWith('2026-')){$('filterMonth').value=d.slice(0,7);$('filterDate').value=d}else{$('filterDate').value=''}render()};
+document.querySelectorAll('[data-kpi]').forEach(card=>card.onclick=()=>{
+ const k=card.dataset.kpi;
+ if(k==='transfers'){document.body.classList.add('show-advanced');$('toggleAdvanced').textContent='Ocultar detalhes';$('toggleAdvanced').setAttribute('aria-expanded','true');$('crossType').value='TRANSFERENCIA';render();document.getElementById('bankCrossPanel').scrollIntoView({behavior:'smooth'});return}
+ $('filterStatus').value=k==='CONCILIADO'?'CONCILIADO':'';
+ document.body.classList.toggle('only-pending',k==='all-pending');
+ render();document.querySelector('.workspace').scrollIntoView({behavior:'smooth',block:'start'});
+});
+$('filterMonth').onchange=()=>{document.body.classList.remove('only-pending');$('filterDate').value='';state.selectedDoc=null;state.selectedBank=null;state.selectedBanks=[];render()};['filterDate','filterGroup','filterStatus','filterBankAccount','filterSearch','filterAmount'].forEach(id=>$(id).addEventListener('input',render));$('clearFilters').onclick=()=>{document.body.classList.remove('only-pending');$('filterDate').value='';$('filterGroup').value='';$('filterStatus').value='';$('filterSearch').value='';$('filterAmount').value='';$('filterBankAccount').value='';render()};$('todayBtn').onclick=()=>{const d=new Date().toISOString().slice(0,10);if(d.startsWith('2026-')){$('filterMonth').value=d.slice(0,7);$('filterDate').value=d}else{$('filterDate').value=''}render()};
 $('quickReview').onclick=()=>document.querySelector('.workspace').scrollIntoView({behavior:'smooth',block:'start'});
+$('toggleAdvanced').onclick=()=>{const open=document.body.classList.toggle('show-advanced');$('toggleAdvanced').textContent=open?'Ocultar detalhes':'Ver detalhes';$('toggleAdvanced').setAttribute('aria-expanded',String(open));};
+$('toggleFilters').onclick=()=>{const open=document.body.classList.toggle('show-advanced-filters');$('toggleFilters').textContent=open?'Menos filtros':'Mais filtros';$('toggleFilters').setAttribute('aria-expanded',String(open));};
+$('toggleBankView').onclick=()=>{const open=document.body.classList.toggle('bank-open');$('toggleBankView').textContent=open?'Ocultar extrato':'Mostrar extrato';$('toggleBankView').setAttribute('aria-expanded',String(open));};
 $('quickAudit').onclick=()=>document.getElementById('auditPanel').scrollIntoView({behavior:'smooth',block:'start'});
 load();render();
 </script>
