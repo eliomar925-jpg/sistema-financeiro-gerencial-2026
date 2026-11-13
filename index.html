@@ -257,6 +257,21 @@ const inferGroup=path=>{
  if(p.length>1){const fromFolder=classify(p[p.length-2]);if(fromFolder!=='SEM GRUPO')return fromFolder}
  return classify(p[p.length-1]||raw);
 };
+function detectSavedGroup(text){
+ const normalized=' '+norm(text).replace(/[^A-Z0-9]+/g,' ').replace(/\s+/g,' ').trim()+' ';
+ const aliases=[['LEO SANTANA','LS'],['LEO SANTANA PRODUCOES','LS'],['LS','LS'],['TIMBALADA','TIMBALADA'],['REPRESENTACAO DE BANDAS','REPRESENTAÇÃO DE BANDAS']];
+ const candidates=[...aliases,...allGroups().filter(g=>g!=='LS').map(g=>[norm(g),g])];
+ const hits=[...new Set(candidates.filter(([word])=>normalized.includes(' '+word+' ')).map(([,g])=>g))];
+ return hits.length===1?hits[0]:null;
+}
+function applyDetectedGroup(source,ocr){
+ const group=detectSavedGroup([source.path||source.name,String(ocr||'').slice(0,1800)].join(' '));
+ if(!group)return false;
+ const related=state.docs.filter(d=>(d.sourceId||d.id)===(source.sourceId||source.id));
+ if(related.some(d=>d.group&&d.group!=='SEM GRUPO'&&d.group!==group))return false;
+ related.forEach(d=>{d.group=group;d.groupDetection='texto identificado no espelho';});
+ return true;
+}
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 let mediaDbPromise=null;
 function mediaDb(){if(mediaDbPromise)return mediaDbPromise;mediaDbPromise=new Promise((resolve,reject)=>{const q=indexedDB.open('ConciliacaoDiariaPagamentos',1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains('media'))q.result.createObjectStore('media')};q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)});return mediaDbPromise}
@@ -273,7 +288,7 @@ $('docFiles').onchange=()=>{$('docFileList').innerHTML=[...$('docFiles').files].
 $('bankFiles').onchange=()=>{$('bankFileList').innerHTML=[...$('bankFiles').files].map(f=>'<div class="fileLine">'+(f.name.toLowerCase().endsWith('.pdf')?'📄 PDF · ':'📊 Excel · ')+f.name+'</div>').join('')};
 
 $('processDocs').onclick=async()=>{
- const files=[...$('docFiles').files],uploadGroup=$('uploadGroup').value;let accepted=0,skipped=0,unknown=0;
+ const files=[...$('docFiles').files],uploadGroup=$('uploadGroup').value,batchId=uid();let accepted=0,skipped=0,unknown=0;
  for(const f of files){
   const ext=f.name.split('.').pop().toLowerCase();
   if(ext==='zip'){
@@ -282,16 +297,19 @@ $('processDocs').onclick=async()=>{
     if(z.dir)continue;const e=name.split('.').pop().toLowerCase();if(!['jpg','jpeg','png','webp','pdf'].includes(e))continue;
     const date=inferDate(name);if(date&&!date.startsWith('2026-')){skipped++;continue}if(!date){unknown++;}
     if(state.docs.some(d=>d.path===name&&d.date===date)){skipped++;continue}const id=uid(),blob=await z.async('blob');await putMedia(id,blob);
-    state.docs.push({id,sourceId:id,name:name.split('/').pop(),path:name,group:uploadGroup||inferGroup(name),date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:e==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
+    state.docs.push({id,sourceId:id,name:name.split('/').pop(),path:name,group:uploadGroup||detectSavedGroup(name)||inferGroup(name),importBatch:batchId,date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:e==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
    }
   }else{
    const date=inferDate(f.name);if(date&&!date.startsWith('2026-')){skipped++;continue}if(!date){unknown++;}
    if(state.docs.some(d=>d.path===f.name&&d.date===date)){skipped++;continue}const id=uid();await putMedia(id,f);
-   state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:uploadGroup||inferGroup(f.name),date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
+   state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:uploadGroup||detectSavedGroup(f.name)||inferGroup(f.name),importBatch:batchId,date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
   }
  }
  save();render();modal('docsModal',false);$('docFiles').value='';$('uploadGroup').value='';$('docFileList').innerHTML='';
- alert(accepted+' espelho(s) adicionados.'+(skipped?' '+skipped+' arquivo(s) já existentes ou com data fora de 2026 não adicionados.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável guardados para revisão (sem competência atribuída).':''));
+ const newlyAdded=state.docs.filter(x=>!x.ocrDone&&!x.itemNo&&x.kind==='image'&&x.importBatch===batchId);
+ let readCount=0;for(const doc of newlyAdded){try{await processSourceOcr(doc,true);readCount++}catch(e){doc.obs=[doc.obs,'Leitura automática pendente'].filter(Boolean).join(' | ')}}
+ save();render();
+ alert(accepted+' espelho(s) adicionados; '+readCount+' imagem(ns) analisada(s) automaticamente.'+(skipped?' '+skipped+' arquivo(s) já existentes ou com data fora de 2026 não adicionados.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável guardados para revisão (sem competência atribuída).':''));
 };
 
 function parseBank(wb,file){
@@ -589,8 +607,8 @@ async function processSourceOcr(d,quiet=false){
  const sourceId=d.sourceId||d.id,blob=await getMedia(sourceId);if(!blob){if(!quiet)alert('Imagem não localizada neste navegador.');return 0}if(d.kind==='pdf'){if(!quiet)alert('PDF permanece como evidência nesta versão.');return 0}
  const siblings=state.docs.filter(x=>(x.sourceId||x.id)===sourceId);if(siblings.some(x=>x.ocrDone)){return siblings.filter(x=>x.itemNo).length}
  const r=await Tesseract.recognize(blob,'por',{logger:m=>{if(!quiet&&m.status==='recognizing text')$('ocrStatus').textContent='OCR '+Math.round((m.progress||0)*100)+'%'}});
- const text=r.data.text||'',items=parseOcr(text,d);if(!items.length){d.ocr=text;d.ocrDone=true;save();return 0}
- const idx=state.docs.findIndex(x=>x.id===d.id),newDocs=items.map((it,n)=>({id:uid(),sourceId,name:d.name,path:d.path,group:d.group,date:it.date||d.date,benef:it.benef,value:it.value,obs:'OCR: '+it.line,status:'PENDENTE',bankId:null,ocr:text,kind:d.kind,itemNo:n+1,ocrDone:true}));
+ const text=r.data.text||'';applyDetectedGroup(d,text);const items=parseOcr(text,d);if(!items.length){d.ocr=text;d.ocrDone=true;save();return 0}
+ const idx=state.docs.findIndex(x=>x.id===d.id),newDocs=items.map((it,n)=>({id:uid(),sourceId,name:d.name,path:d.path,group:d.group,groupDetection:d.groupDetection,date:it.date||d.date,benef:it.benef,value:it.value,obs:'OCR: '+it.line,status:'PENDENTE',bankId:null,ocr:text,kind:d.kind,itemNo:n+1,ocrDone:true}));
  state.docs.splice(idx,1,...newDocs);save();return newDocs.length
 }
 $('ocrBtn').onclick=async()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um arquivo/pagamento.');$('ocrBtn').disabled=true;$('ocrStatus').textContent='Lendo arquivo...';try{const n=await processSourceOcr(d,false);const first=state.docs.find(x=>(x.sourceId||x.id)===(d.sourceId||d.id));if(first)state.selectedDoc=first.id;$('ocrStatus').textContent=n?n+' pagamento(s) identificado(s) neste arquivo.':'OCR concluído; revise manualmente.';render();await fillDoc()}catch(e){$('ocrStatus').textContent='Falha no OCR. Revise manualmente.'}finally{$('ocrBtn').disabled=false}};
