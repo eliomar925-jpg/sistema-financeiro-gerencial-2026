@@ -288,20 +288,20 @@ $('docFiles').onchange=()=>{$('docFileList').innerHTML=[...$('docFiles').files].
 $('bankFiles').onchange=()=>{$('bankFileList').innerHTML=[...$('bankFiles').files].map(f=>'<div class="fileLine">'+(f.name.toLowerCase().endsWith('.pdf')?'📄 PDF · ':'📊 Excel · ')+f.name+'</div>').join('')};
 
 $('processDocs').onclick=async()=>{
- const files=[...$('docFiles').files],uploadGroup=$('uploadGroup').value,batchId=uid();let accepted=0,skipped=0,unknown=0;
+ const files=[...$('docFiles').files],uploadGroup=$('uploadGroup').value,batchId=uid();let accepted=0,duplicates=0,outside=0,unknown=0;
  for(const f of files){
   const ext=f.name.split('.').pop().toLowerCase();
   if(ext==='zip'){
    const zip=await JSZip.loadAsync(await f.arrayBuffer());
    for(const [name,z] of Object.entries(zip.files)){
     if(z.dir)continue;const e=name.split('.').pop().toLowerCase();if(!['jpg','jpeg','png','webp','pdf'].includes(e))continue;
-    const date=inferDate(name);if(date&&!date.startsWith('2026-')){skipped++;continue}if(!date){unknown++;}
-    if(state.docs.some(d=>d.path===name&&d.date===date)){skipped++;continue}const id=uid(),blob=await z.async('blob');await putMedia(id,blob);
+    const date=inferDate(name);if(date&&!date.startsWith('2026-')){outside++;continue}if(!date){unknown++;}
+    if(state.docs.some(d=>d.path===name&&d.date===date)){duplicates++;continue}const id=uid(),blob=await z.async('blob');await putMedia(id,blob);
     state.docs.push({id,sourceId:id,name:name.split('/').pop(),path:name,group:uploadGroup||detectSavedGroup(name)||inferGroup(name),importBatch:batchId,date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:e==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
    }
   }else{
-   const date=inferDate(f.name);if(date&&!date.startsWith('2026-')){skipped++;continue}if(!date){unknown++;}
-   if(state.docs.some(d=>d.path===f.name&&d.date===date)){skipped++;continue}const id=uid();await putMedia(id,f);
+   const date=inferDate(f.name);if(date&&!date.startsWith('2026-')){outside++;continue}if(!date){unknown++;}
+   if(state.docs.some(d=>d.path===f.name&&d.date===date)){duplicates++;continue}const id=uid();await putMedia(id,f);
    state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:uploadGroup||detectSavedGroup(f.name)||inferGroup(f.name),importBatch:batchId,date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
   }
  }
@@ -309,7 +309,7 @@ $('processDocs').onclick=async()=>{
  const newlyAdded=state.docs.filter(x=>!x.ocrDone&&!x.itemNo&&x.kind==='image'&&x.importBatch===batchId);
  let readCount=0;for(const doc of newlyAdded){try{await processSourceOcr(doc,true);readCount++}catch(e){doc.obs=[doc.obs,'Leitura automática pendente'].filter(Boolean).join(' | ')}}
  save();render();
- alert(accepted+' espelho(s) adicionados; '+readCount+' imagem(ns) analisada(s) automaticamente.'+(skipped?' '+skipped+' arquivo(s) já existentes ou com data fora de 2026 não adicionados.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável guardados para revisão (sem competência atribuída).':''));
+ alert(accepted+' espelho(s) adicionados; '+readCount+' imagem(ns) analisada(s) automaticamente.'+(duplicates?' '+duplicates+' arquivo(s) com mesmo nome e data já cadastrados. Não foram adicionados novamente.':'')+(outside?' '+outside+' arquivo(s) com data fora de 2026.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável guardados para revisão.':''));
 };
 
 function parseBank(wb,file){
