@@ -33,6 +33,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 </header>
 
 <main class="main">
+<div class="panel" id="simpleNav" style="margin-top:0;margin-bottom:12px"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px"><strong style="margin-right:12px">Conciliação simples</strong><button class="smallBtn primary" id="viewPayments">1. Espelhos × Extratos</button><button class="smallBtn" id="viewTransfers">2. Transferências</button><button class="smallBtn" id="viewPending">3. Pendências</button><button class="smallBtn" id="toggleAdvanced">Mais detalhes</button></div><p class="muted" style="margin:8px 0 0">Selecione um espelho: o sistema apresenta débitos candidatos. Confira a conta, o valor e a data para validar.</p></div>
   <div class="panel" style="margin-top:0;margin-bottom:14px"><b>Conciliação em 3 passos:</b> 1. Carregue espelhos e extratos. 2. Confira os candidatos. 3. Valide ou registre a pendência.<div class="toolbar"><button class="smallBtn" id="quickReview">Conferir pagamentos</button><button class="smallBtn primary" id="quickAudit">Registrar análise</button></div></div>
   <div class="filters">
     <input type="month" id="filterMonth" min="2026-01" max="2026-12" value="2026-09" title="Mês de trabalho">
@@ -210,6 +211,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <h2>Extratos bancários</h2><p class="muted">Remove apenas os lançamentos bancários carregados. Os espelhos são mantidos.</p>
     <button class="smallBtn" id="clearBanksBtn">Limpar extratos</button>
   </div>
+<div class="panel" style="margin-top:14px"><h2>Excluir somente setembro/2026</h2><p class="muted">Remove espelhos e movimentos bancários de setembro, sem apagar outubro e outros meses. Vínculos ligados a setembro serão reabertos para evitar conciliações quebradas.</p><button class="smallBtn" id="clearSepBtn">Revisar exclusão de setembro</button></div>
   <div class="panel">
     <h2>Recomeçar trabalho</h2><p class="muted">Remove todos os meses carregados: espelhos, pagamentos identificados, extratos e vínculos de conciliação.</p>
     <button class="smallBtn" id="clearAllBtn">Limpar tudo</button>
@@ -614,6 +616,24 @@ $('reconcileBtn').onclick=()=>{
 };
 $('divergenceBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');d.status='DIVERGÊNCIA';d.obs=$('editObs').value.trim()||'Revisar valor/data/beneficiário';save();render()};
 $('undoBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return;const ids=d.bankIds||[d.bankId].filter(Boolean);ids.forEach(id=>{const b=state.banks.find(x=>x.id===id);if(b&&b.matchedDoc===d.id)b.matchedDoc=null});d.bankId=null;d.bankIds=[];d.status='PENDENTE';state.selectedBanks=[];save();render();fillDoc()};
+$('clearSepBtn').onclick=async()=>{
+ const period='2026-09',removeDocs=state.docs.filter(d=>String(d.date||'').startsWith(period)),removeBanks=state.banks.filter(b=>String(b.date||'').startsWith(period));
+ const msg='EXCLUIR SETEMBRO/2026\n\nEspelhos/itens: '+removeDocs.length+'\nLançamentos bancários: '+removeBanks.length+'\n\nOutubro e os outros meses serão preservados. Os vínculos cruzando meses serão reabertos. Esta operação afeta os dados guardados neste navegador.\n\nDeseja continuar?';
+ if(!confirm(msg))return;
+ if(prompt('Digite SETEMBRO para confirmar a exclusão:')!=='SETEMBRO')return;
+ const removedDocIds=new Set(removeDocs.map(d=>d.id)),removedBankIds=new Set(removeBanks.map(b=>b.id));
+ const remainingDocs=state.docs.filter(d=>!removedDocIds.has(d.id)),remainingBanks=state.banks.filter(b=>!removedBankIds.has(b.id));
+ for(const d of remainingDocs){
+  if(removedBankIds.has(d.bankId)){d.bankId=null;if(d.status==='CONCILIADO')d.status='PENDENTE'}
+  if(Array.isArray(d.bankIds)){const prior=d.bankIds.length;d.bankIds=d.bankIds.filter(id=>!removedBankIds.has(id));if(prior!==d.bankIds.length&&d.status==='CONCILIADO')d.status='PENDENTE'}
+ }
+ for(const b of remainingBanks)if(removedDocIds.has(b.matchedDoc))b.matchedDoc=null;
+ const remainingMedia=new Set(remainingDocs.map(d=>d.sourceId||d.id));
+ const disposable=[...new Set(removeDocs.map(d=>d.sourceId||d.id))].filter(id=>!remainingMedia.has(id));
+ state.docs=remainingDocs;state.banks=remainingBanks;state.selectedDoc=null;state.selectedBank=null;state.selectedBanks=[];
+ save();await deleteMediaIds(disposable);$('filterMonth').value='2026-10';$('filterDate').value='';render();
+ modal('clearModal',false);alert('Setembro excluído deste navegador: '+removeDocs.length+' espelhos/itens e '+removeBanks.length+' lançamentos. Outubro preservado.');
+};
 $('clearDocsBtn').onclick=async()=>{if(!confirm('Limpar todos os espelhos e pagamentos identificados? Os extratos serão mantidos.'))return;const ids=[...new Set(state.docs.map(d=>d.sourceId||d.id))];await deleteMediaIds(ids);state.docs=[];state.selectedDoc=null;state.banks.forEach(b=>b.matchedDoc=null);save();render();modal('clearModal',false);$('docPreview').innerHTML='<span class="muted">A prévia do espelho aparece aqui.</span>';alert('Espelhos removidos. Os extratos foram preservados.');};
 $('clearBanksBtn').onclick=()=>{if(!confirm('Limpar todos os extratos bancários? Os espelhos serão mantidos.'))return;state.banks=[];state.selectedBank=null;state.docs.forEach(d=>{d.bankId=null;d.bankIds=[];if(d.status==='CONCILIADO')d.status='PENDENTE';if(isLotDoc(d)&&d.value)d.status='AGUARDANDO EXTRATO'});save();render();modal('clearModal',false);alert('Extratos removidos. Os espelhos foram preservados.');};
 $('clearAllBtn').onclick=async()=>{if(!confirm('Limpar TODO o trabalho de 2026 e recomeçar?'))return;await clearAllMedia();state.docs=[];state.banks=[];state.selectedDoc=null;state.selectedBank=null;localStorage.removeItem('conciliacao_diaria_v2');save();render();modal('clearModal',false);$('docPreview').innerHTML='<span class="muted">A prévia do espelho aparece aqui.</span>';alert('Trabalho limpo. Agora você pode carregar novamente os arquivos desejados.');};
@@ -624,6 +644,20 @@ document.querySelectorAll('[data-kpi]').forEach(card=>card.onclick=()=>{const k=
 $('filterMonth').onchange=()=>{$('filterDate').value='';state.selectedDoc=null;state.selectedBank=null;state.selectedBanks=[];render()};['filterDate','filterGroup','filterStatus','filterBankAccount','filterSearch','filterAmount'].forEach(id=>$(id).addEventListener('input',render));$('clearFilters').onclick=()=>{$('filterDate').value='';$('filterGroup').value='';$('filterStatus').value='';$('filterSearch').value='';$('filterAmount').value='';$('filterBankAccount').value='';render()};$('todayBtn').onclick=()=>{const d=new Date().toISOString().slice(0,10);if(d.startsWith('2026-')){$('filterMonth').value=d.slice(0,7);$('filterDate').value=d}else{$('filterDate').value=''}render()};
 $('quickReview').onclick=()=>document.querySelector('.workspace').scrollIntoView({behavior:'smooth',block:'start'});
 $('quickAudit').onclick=()=>document.getElementById('auditPanel').scrollIntoView({behavior:'smooth',block:'start'});
-load();render();
+function setSimpleView(view){
+ const cross=$('bankCrossPanel'),work=document.querySelector('.workspace'),selection=$('selectionMsg')?.closest('.panel'),audit=$('auditPanel'),pending=$('pendingBody')?.closest('.panel');
+ cross.style.display=view==='transfers'?'':'none';work.style.display=view==='payments'?'':'none';if(selection)selection.style.display=view==='payments'?'':'none';audit.style.display=view==='pending'?'':'none';if(pending)pending.style.display=view==='pending'?'':'none';
+ [['viewPayments','payments'],['viewTransfers','transfers'],['viewPending','pending']].forEach(([id,v])=>$(id).classList.toggle('primary',v===view));
+}
+function hideAdvanced(){
+ const headings=['Conferência bidirecional','Fluxo operacional','Revisão automática'];
+ document.querySelectorAll('main .panel').forEach(p=>{const h=p.querySelector('h2');if(h&&headings.includes(h.textContent.trim()))p.dataset.advanced='yes'});
+ document.querySelectorAll('[data-advanced="yes"]').forEach(p=>p.style.display='none');
+}
+$('viewPayments').onclick=()=>setSimpleView('payments');
+$('viewTransfers').onclick=()=>setSimpleView('transfers');
+$('viewPending').onclick=()=>setSimpleView('pending');
+$('toggleAdvanced').onclick=()=>{const ps=[...document.querySelectorAll('[data-advanced="yes"]')];const show=ps.some(p=>p.style.display==='none');ps.forEach(p=>p.style.display=show?'':'none');$('toggleAdvanced').textContent=show?'Ocultar detalhes':'Mais detalhes'};
+load();render();hideAdvanced();setSimpleView('payments');
 </script>
 </body></html>
