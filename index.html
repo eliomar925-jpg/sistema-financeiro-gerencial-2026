@@ -36,7 +36,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 <div class="panel" id="simpleNav" style="margin-top:0;margin-bottom:12px"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px"><strong style="margin-right:12px">Conciliação simples</strong><button class="smallBtn primary" id="viewPayments">1. Espelhos × Extratos</button><button class="smallBtn" id="viewTransfers">2. Transferências</button><button class="smallBtn" id="viewPending">3. Pendências</button><button class="smallBtn" id="toggleAdvanced">Mais detalhes</button></div><p class="muted" style="margin:8px 0 0">Selecione um espelho: o sistema apresenta débitos candidatos. Confira a conta, o valor e a data para validar.</p></div>
   <div class="panel" style="margin-top:0;margin-bottom:14px"><b>Conciliação em 3 passos:</b> 1. Carregue espelhos e extratos. 2. Confira os candidatos. 3. Valide ou registre a pendência.<div class="toolbar"><button class="smallBtn" id="quickReview">Conferir pagamentos</button><button class="smallBtn primary" id="quickAudit">Registrar análise</button></div></div>
   <div class="filters">
-    <input type="month" id="filterMonth" min="2026-01" max="2026-12" value="2026-09" title="Mês de trabalho">
+    <input type="month" id="filterMonth" min="2026-01" max="2026-12" value="2026-10" title="Mês de trabalho">
     <input type="date" id="filterDate" min="2026-01-01" max="2026-12-31" title="Dia específico (opcional)">
     <select id="filterGroup"><option value="">Todos os grupos</option></select>
     <select id="filterStatus"><option value="">Todos os status</option><option>PENDENTE</option><option>AGUARDANDO EXTRATO</option><option>CONCILIADO</option><option>DIVERGÊNCIA</option></select>
@@ -418,7 +418,7 @@ function reviewRows(){
  return rows.map(x=>({...x,conflict:x.m&&(use.get(x.m.b.id)||0)>1}));
 }
 const monthNames=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-function selectedMonth(){return $('filterMonth').value||'2026-09'}
+function selectedMonth(){return $('filterMonth').value||'2026-10'}
 function updatePeriodUI(){
  const ym=selectedMonth(),[y,m]=ym.split('-').map(Number),last=new Date(y,m,0).getDate(),label=monthNames[m-1]+'/'+y;
  $('headerPeriod').textContent=label;$('headerScope').textContent='01/'+String(m).padStart(2,'0')+'/'+y+' a '+String(last).padStart(2,'0')+'/'+String(m).padStart(2,'0')+'/'+y;
