@@ -202,19 +202,14 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 </div></div>
 
 <div class="modal" id="clearModal"><div class="modalBox">
-  <div class="modalHead"><div><h2>Limpar arquivos do trabalho</h2><div class="muted">Escolha exatamente o que deseja apagar. Esta ação não afeta os arquivos originais no seu computador.</div></div><button class="close" data-close="clearModal">×</button></div>
-  <div class="panel" style="margin-top:14px">
-    <h2>Espelhos / WhatsApp</h2><p class="muted">Remove os arquivos e pagamentos derivados das imagens/PDFs. Os extratos bancários são mantidos.</p>
-    <button class="smallBtn" id="clearDocsBtn">Limpar espelhos</button>
-  </div>
-  <div class="panel">
-    <h2>Extratos bancários</h2><p class="muted">Remove apenas os lançamentos bancários carregados. Os espelhos são mantidos.</p>
-    <button class="smallBtn" id="clearBanksBtn">Limpar extratos</button>
-  </div>
-<div class="panel" style="margin-top:14px"><h2>Excluir somente setembro/2026</h2><p class="muted">Remove espelhos e movimentos bancários de setembro, sem apagar outubro e outros meses. Vínculos ligados a setembro serão reabertos para evitar conciliações quebradas.</p><button class="smallBtn" id="clearSepBtn">Revisar exclusão de setembro</button></div>
-  <div class="panel">
-    <h2>Recomeçar trabalho</h2><p class="muted">Remove todos os meses carregados: espelhos, pagamentos identificados, extratos e vínculos de conciliação.</p>
-    <button class="smallBtn" id="clearAllBtn">Limpar tudo</button>
+  <div class="modalHead"><div><h2>Limpar mês selecionado</h2><div class="muted">A limpeza afeta somente o mês escolhido no filtro principal. Os outros meses serão preservados.</div></div><button class="close" data-close="clearModal">×</button></div>
+  <div class="panel"><h2 id="clearMonthTitle">Mês selecionado</h2><p class="muted" id="clearMonthCount">Confira os registros antes de excluir.</p>
+    <div class="toolbar">
+      <button class="smallBtn" id="clearDocsBtn">Excluir espelhos do mês</button>
+      <button class="smallBtn" id="clearBanksBtn">Excluir extratos do mês</button>
+      <button class="smallBtn primary" id="clearAllBtn">Excluir espelhos e extratos do mês</button>
+    </div>
+    <p class="muted">Arquivos sem data identificada não serão excluídos. Conciliações ligadas a registros removidos serão reabertas, inclusive quando envolverem outro mês.</p>
   </div>
 </div></div>
 
@@ -273,7 +268,7 @@ function save(){localStorage.setItem('conciliacao_diaria_v2',JSON.stringify({doc
 function load(){try{const x=JSON.parse(localStorage.getItem('conciliacao_diaria_v2')||localStorage.getItem('conciliacao_diaria_v1')||'{}');state.docs=x.docs||[];state.banks=x.banks||[];let changed=false;for(const d of state.docs){if(!d.group||d.group==='SEM GRUPO'){const g=inferGroup(d.path||d.name);if(g!=='SEM GRUPO'){d.group=g;changed=true}}}if(changed)save()}catch(e){}}
 function modal(id,on=true){$(id).classList.toggle('on',on)}
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>modal(b.dataset.close,false));
-$('openDocs').onclick=()=>modal('docsModal');$('openBanks').onclick=()=>modal('banksModal');$('openClear').onclick=()=>modal('clearModal');$('saveWork').onclick=()=>{save();alert('Trabalho salvo neste navegador.')};
+$('openDocs').onclick=()=>modal('docsModal');$('openBanks').onclick=()=>modal('banksModal');$('openClear').onclick=()=>{updateClearMonthPreview();modal('clearModal')};$('saveWork').onclick=()=>{save();alert('Trabalho salvo neste navegador.')};
 $('docFiles').onchange=()=>{$('docFileList').innerHTML=[...$('docFiles').files].map(f=>'<div class="fileLine">'+f.name+'</div>').join('')};
 $('bankFiles').onchange=()=>{$('bankFileList').innerHTML=[...$('bankFiles').files].map(f=>'<div class="fileLine">'+(f.name.toLowerCase().endsWith('.pdf')?'📄 PDF · ':'📊 Excel · ')+f.name+'</div>').join('')};
 
@@ -616,27 +611,43 @@ $('reconcileBtn').onclick=()=>{
 };
 $('divergenceBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');d.status='DIVERGÊNCIA';d.obs=$('editObs').value.trim()||'Revisar valor/data/beneficiário';save();render()};
 $('undoBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return;const ids=d.bankIds||[d.bankId].filter(Boolean);ids.forEach(id=>{const b=state.banks.find(x=>x.id===id);if(b&&b.matchedDoc===d.id)b.matchedDoc=null});d.bankId=null;d.bankIds=[];d.status='PENDENTE';state.selectedBanks=[];save();render();fillDoc()};
-$('clearSepBtn').onclick=async()=>{
- const period='2026-09',removeDocs=state.docs.filter(d=>String(d.date||'').startsWith(period)),removeBanks=state.banks.filter(b=>String(b.date||'').startsWith(period));
- const msg='EXCLUIR SETEMBRO/2026\n\nEspelhos/itens: '+removeDocs.length+'\nLançamentos bancários: '+removeBanks.length+'\n\nOutubro e os outros meses serão preservados. Os vínculos cruzando meses serão reabertos. Esta operação afeta os dados guardados neste navegador.\n\nDeseja continuar?';
- if(!confirm(msg))return;
- if(prompt('Digite SETEMBRO para confirmar a exclusão:')!=='SETEMBRO')return;
- const removedDocIds=new Set(removeDocs.map(d=>d.id)),removedBankIds=new Set(removeBanks.map(b=>b.id));
- const remainingDocs=state.docs.filter(d=>!removedDocIds.has(d.id)),remainingBanks=state.banks.filter(b=>!removedBankIds.has(b.id));
+function monthCleanupCounts(){
+ const period=selectedMonth();
+ return {period,docs:state.docs.filter(d=>String(d.date||'').startsWith(period)),banks:state.banks.filter(b=>String(b.date||'').startsWith(period))};
+}
+function updateClearMonthPreview(){
+ const {period,docs,banks}=monthCleanupCounts();
+ const [y,m]=period.split('-').map(Number);
+ const label=monthNames[m-1]+'/'+y;
+ $('clearMonthTitle').textContent='Mês: '+label;
+ $('clearMonthCount').textContent=docs.length+' espelhos/itens e '+banks.length+' lançamentos bancários neste mês.';
+}
+async function clearSelectedMonth(scope){
+ const {period,docs,banks}=monthCleanupCounts();
+ const removeDocs=scope==='docs'||scope==='both'?docs:[],removeBanks=scope==='banks'||scope==='both'?banks:[];
+ if(!removeDocs.length&&!removeBanks.length)return alert('Não há registros deste tipo para excluir em '+period+'.');
+ const note='EXCLUSÃO DO MÊS '+period+'\n\nEspelhos/itens: '+removeDocs.length+'\nLançamentos bancários: '+removeBanks.length+'\n\nOutros meses serão preservados. Vínculos com registros excluídos serão reabertos. Arquivos sem data ficam mantidos.';
+ if(!confirm(note+'\n\nDeseja continuar?'))return;
+ if(prompt('Para confirmar, digite o mês exatamente como aparece: '+period)!==period)return alert('Exclusão cancelada. Nenhum dado foi removido.');
+ const removeDocIds=new Set(removeDocs.map(d=>d.id)),removeBankIds=new Set(removeBanks.map(b=>b.id));
+ const remainingDocs=state.docs.filter(d=>!removeDocIds.has(d.id)),remainingBanks=state.banks.filter(b=>!removeBankIds.has(b.id));
  for(const d of remainingDocs){
-  if(removedBankIds.has(d.bankId)){d.bankId=null;if(d.status==='CONCILIADO')d.status='PENDENTE'}
-  if(Array.isArray(d.bankIds)){const prior=d.bankIds.length;d.bankIds=d.bankIds.filter(id=>!removedBankIds.has(id));if(prior!==d.bankIds.length&&d.status==='CONCILIADO')d.status='PENDENTE'}
+  let invalidated=false;
+  if(d.bankId&&removeBankIds.has(d.bankId)){d.bankId=null;invalidated=true}
+  if(Array.isArray(d.bankIds)){const previous=d.bankIds.length;d.bankIds=d.bankIds.filter(id=>!removeBankIds.has(id));if(d.bankIds.length!==previous)invalidated=true}
+  if(invalidated){d.status='PENDENTE';d.obs=[d.obs,'Vínculo reaberto após limpeza de '+period].filter(Boolean).join(' | ')}
  }
- for(const b of remainingBanks)if(removedDocIds.has(b.matchedDoc))b.matchedDoc=null;
- const remainingMedia=new Set(remainingDocs.map(d=>d.sourceId||d.id));
- const disposable=[...new Set(removeDocs.map(d=>d.sourceId||d.id))].filter(id=>!remainingMedia.has(id));
+ for(const b of remainingBanks){if(removeDocIds.has(b.matchedDoc))b.matchedDoc=null}
+ const stillUsedMedia=new Set(remainingDocs.map(d=>d.sourceId||d.id));
+ const mediaIds=[...new Set(removeDocs.map(d=>d.sourceId||d.id))].filter(id=>!stillUsedMedia.has(id));
  state.docs=remainingDocs;state.banks=remainingBanks;state.selectedDoc=null;state.selectedBank=null;state.selectedBanks=[];
- save();await deleteMediaIds(disposable);$('filterMonth').value='2026-10';$('filterDate').value='';render();
- modal('clearModal',false);alert('Setembro excluído deste navegador: '+removeDocs.length+' espelhos/itens e '+removeBanks.length+' lançamentos. Outubro preservado.');
-};
-$('clearDocsBtn').onclick=async()=>{if(!confirm('Limpar todos os espelhos e pagamentos identificados? Os extratos serão mantidos.'))return;const ids=[...new Set(state.docs.map(d=>d.sourceId||d.id))];await deleteMediaIds(ids);state.docs=[];state.selectedDoc=null;state.banks.forEach(b=>b.matchedDoc=null);save();render();modal('clearModal',false);$('docPreview').innerHTML='<span class="muted">A prévia do espelho aparece aqui.</span>';alert('Espelhos removidos. Os extratos foram preservados.');};
-$('clearBanksBtn').onclick=()=>{if(!confirm('Limpar todos os extratos bancários? Os espelhos serão mantidos.'))return;state.banks=[];state.selectedBank=null;state.docs.forEach(d=>{d.bankId=null;d.bankIds=[];if(d.status==='CONCILIADO')d.status='PENDENTE';if(isLotDoc(d)&&d.value)d.status='AGUARDANDO EXTRATO'});save();render();modal('clearModal',false);alert('Extratos removidos. Os espelhos foram preservados.');};
-$('clearAllBtn').onclick=async()=>{if(!confirm('Limpar TODO o trabalho de 2026 e recomeçar?'))return;await clearAllMedia();state.docs=[];state.banks=[];state.selectedDoc=null;state.selectedBank=null;localStorage.removeItem('conciliacao_diaria_v2');save();render();modal('clearModal',false);$('docPreview').innerHTML='<span class="muted">A prévia do espelho aparece aqui.</span>';alert('Trabalho limpo. Agora você pode carregar novamente os arquivos desejados.');};
+ save();await deleteMediaIds(mediaIds);$('filterDate').value='';render();modal('clearModal',false);
+ $('docPreview').innerHTML='<span class="muted">Selecione um espelho para visualizar.</span>';
+ alert('Exclusão concluída SOMENTE em '+period+'. Removidos: '+removeDocs.length+' espelhos/itens e '+removeBanks.length+' lançamentos.');
+}
+$('clearDocsBtn').onclick=()=>clearSelectedMonth('docs');
+$('clearBanksBtn').onclick=()=>clearSelectedMonth('banks');
+$('clearAllBtn').onclick=()=>clearSelectedMonth('both');
 $('confirmStrongBtn').onclick=()=>alert('Confirmação em lote desabilitada: valide cada débito individualmente para manter a trilha de auditoria.');
 $('reviewBtn').onclick=()=>{render();const rr=reviewRows(),fortes=rr.filter(x=>x.m&&x.m.s>=95&&!x.conflict).length,possiveis=rr.filter(x=>x.m&&x.m.s>=80&&x.m.s<95&&!x.conflict).length,sem=rr.filter(x=>!x.m||x.m.s<80||x.conflict).length;alert('Análise concluída: '+fortes+' match(es) forte(s), '+possiveis+' possível(is) e '+sem+' sem correspondência segura. Nenhum pagamento foi conciliado automaticamente.');};
 $('exportDiagBtn').onclick=()=>{const bd=bidirectionalDiagnosis(),rows=[['TIPO','DATA','GRUPO/CONTA','DESCRICAO','VALOR']];for(const b of bd.bankNoDoc)rows.push(['BANCO SEM ESPELHO',b.date,b.agencia+' / '+b.conta,b.razao||b.lanc,Math.abs(b.value)]);for(const d of bd.docNoBank)rows.push(['ESPELHO SEM BANCO',d.date,d.group,d.name+(d.itemNo?' item '+d.itemNo:''),Math.abs(d.value||0)]);const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n'),blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='diagnostico-conciliacao-'+selectedMonth()+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
