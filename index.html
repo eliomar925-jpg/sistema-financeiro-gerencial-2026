@@ -44,6 +44,10 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <button class="smallBtn" id="clearFilters">Limpar filtros</button>
   </div>
 
+  <div class="panel" id="readingDiagnostics" style="margin-top:0">
+    <div class="paneHead" style="padding:0;border:0"><div><strong>Diagnóstico dos espelhos do mês</strong><div class="muted" id="ocrDiagnosticSummary">Analisando arquivos...</div></div><button class="smallBtn" type="button" id="showPendingImages">Mostrar arquivos sem leitura</button></div>
+    <div id="ocrDiagnosticDetails" style="display:none;max-height:200px;overflow:auto;margin-top:8px"></div>
+  </div>
   <div class="panel" style="margin-top:0">
     <h2 style="margin-bottom:4px">Controle do mês</h2>
     <p class="muted" style="margin-top:0">O fechamento operacional é acompanhado por estes seis números.</p>
@@ -252,14 +256,14 @@ const inferDate=name=>{
 };
 const inferGroup=path=>{
  const raw=String(path||''),p=raw.replace(/\\/g,'/').split('/').filter(Boolean);
- const aliases={'TIMBALADA':'TIMBALADA','REPRESENTACAO DE BANDAS':'REPRESENTAÇÃO DE BANDAS','REPRESENTACAO BANDAS':'REPRESENTAÇÃO DE BANDAS','EVENTOS':'EVENTOS','ESCRITORIO':'ESCRITORIO','WET':'ESCRITORIO','DIZZON':'DIZZON','KART LOVE':'KART LOVE','VINA CALMON':'VINA CALMON','LEO SANTANA':'LS','LS':'LS'};
+ const aliases={'TIMBALADA':'TIMBALADA','REPRESENTACAO BANDAS':'REPRESENTAÇÃO DE BANDAS','REPRESENTACAO DE BANDAS':'REPRESENTAÇÃO DE BANDAS','REPRESENTACAO BANDAS':'REPRESENTAÇÃO DE BANDAS','EVENTOS':'EVENTOS','ESCRITORIO':'ESCRITORIO','WET':'ESCRITORIO','DIZZON':'DIZZON','KART LOVE':'KART LOVE','VINA CALMON':'VINA CALMON','LEO SANTANA':'LS','LS':'LS'};
  const classify=text=>{const n=norm(text).replace(/[^A-Z0-9]+/g,' ').trim();for(const [term,group] of Object.entries(aliases)){if((' '+n+' ').includes(' '+term+' '))return group}return'SEM GRUPO'};
  if(p.length>1){const fromFolder=classify(p[p.length-2]);if(fromFolder!=='SEM GRUPO')return fromFolder}
  return classify(p[p.length-1]||raw);
 };
 function detectSavedGroup(text){
  const normalized=' '+norm(text).replace(/[^A-Z0-9]+/g,' ').replace(/\s+/g,' ').trim()+' ';
- const aliases=[['LEO SANTANA','LS'],['LEO SANTANA PRODUCOES','LS'],['LS','LS'],['TIMBALADA','TIMBALADA'],['REPRESENTACAO DE BANDAS','REPRESENTAÇÃO DE BANDAS']];
+ const aliases=[['LEO SANTANA','LS'],['LEO SANTANA PRODUCOES','LS'],['LS','LS'],['TIMBALADA','TIMBALADA'],['REPRESENTACAO DE BANDAS','REPRESENTAÇÃO DE BANDAS'],['REPRESENTACAO BANDAS','REPRESENTAÇÃO DE BANDAS'],['REPRESENTACAO DE BANDA','REPRESENTAÇÃO DE BANDAS']];
  const candidates=[...aliases,...allGroups().filter(g=>g!=='LS').map(g=>[norm(g),g])];
  const hits=[...new Set(candidates.filter(([word])=>normalized.includes(' '+word+' ')).map(([,g])=>g))];
  return hits.length===1?hits[0]:null;
@@ -268,7 +272,7 @@ function applyDetectedGroup(source,ocr){
  const group=detectSavedGroup([source.path||source.name,String(ocr||'').slice(0,1800)].join(' '));
  if(!group)return false;
  const related=state.docs.filter(d=>(d.sourceId||d.id)===(source.sourceId||source.id));
- if(related.some(d=>d.group&&d.group!=='SEM GRUPO'&&d.group!==group))return false;
+ if(related.some(d=>d.group&&d.group!=='SEM GRUPO'&&d.group!==group&&d.groupDetection==='manual'))return false;
  related.forEach(d=>{d.group=group;d.groupDetection='texto identificado no espelho';});
  return true;
 }
@@ -554,8 +558,24 @@ $('addGroupBtn').onclick=()=>{
  $('filterGroup').value='';render();
  alert('Grupo '+name+' cadastrado. Ele já está disponível na importação e na edição dos espelhos.');
 };
+function renderOcrDiagnostics(){
+ const month=selectedMonth(),items=state.docs.filter(d=>d.date&&d.date.startsWith(month)),groups=new Map();
+ const sources=new Map();for(const d of items){const key=d.sourceId||d.id;if(!sources.has(key))sources.set(key,[]);sources.get(key).push(d)}
+ let identified=0,unread=0,empty=0;const pending=[];
+ for(const group of sources.values()){
+  const first=group[0],count=group.filter(d=>d.itemNo||Number(d.value)>0).length;identified+=count;
+  if(!count){const reason=first.ocrIssue||(first.kind==='pdf'?'PDF sem leitura automática':first.ocrDone?'Lido sem pagamento identificado':'Aguardando leitura');pending.push({first,reason});if(first.ocrDone)empty++;else unread++}
+  groups.set(first.group,(groups.get(first.group)||0)+1)
+ }
+ $('ocrDiagnosticSummary').textContent=sources.size+' arquivo(s) · '+identified+' pagamento(s) · '+unread+' aguardando leitura · '+empty+' sem pagamento identificado.';
+ const details=$('ocrDiagnosticDetails');
+ details.replaceChildren();
+ for(const {first,reason} of pending){const line=document.createElement('div');line.className='fileLine';line.textContent=(first.name||first.path)+' · '+(first.group||'SEM GRUPO')+' · '+reason;details.appendChild(line)}
+ if(!pending.length){details.textContent='Nenhum arquivo pendente neste mês.'}
+}
+$('showPendingImages').onclick=()=>{const area=$('ocrDiagnosticDetails');const show=area.style.display==='none';area.style.display=show?'block':'none';$('showPendingImages').textContent=show?'Ocultar pendências':'Mostrar arquivos sem leitura'};
 function render(){
- updatePeriodUI();renderCrossAccounts();auditSelectedBank();selectionText();const ba=$('filterBankAccount'),prev=ba.value;const opts=[...new Set(state.banks.map(crossAccountId))].sort();ba.innerHTML='<option value="">Todas as contas</option>'+opts.map(o=>'<option value="'+o+'">'+o+'</option>').join('');ba.value=opts.includes(prev)?prev:'';
+ updatePeriodUI();renderOcrDiagnostics();renderCrossAccounts();auditSelectedBank();selectionText();const ba=$('filterBankAccount'),prev=ba.value;const opts=[...new Set(state.banks.map(crossAccountId))].sort();ba.innerHTML='<option value="">Todas as contas</option>'+opts.map(o=>'<option value="'+o+'">'+o+'</option>').join('');ba.value=opts.includes(prev)?prev:'';
  refreshGroupSelectors();
  const docs=currentDocs(),bankRank=currentBanks(),banks=bankRank.map(x=>x.b);const visibleFiles=new Set(docs.map(d=>d.sourceId||d.id));$('docCount').textContent=visibleFiles.size+' arquivo(s) · '+docs.length+' pagamento/item(ns)';$('bankCount').textContent=banks.length+' lançamentos';
  $('docBody').innerHTML=docs.map(d=>'<tr class="row '+(state.selectedDoc===d.id?'sel':'')+'" data-doc="'+d.id+'"><td>'+(d.date||'DATA A REVISAR')+'</td><td>'+d.group+'</td><td>'+d.name+(d.itemNo?' <span class="pill">ITEM '+d.itemNo+'</span>':' <span class="pill warn">NÃO LIDO</span>')+'</td><td>'+(d.benef||'—')+'</td><td>'+(d.value?'<span class="amountEmphasis">'+money(d.value)+'</span>':'—')+'</td><td>'+statusPill(d.status)+'</td></tr>').join('');
@@ -607,12 +627,12 @@ async function processSourceOcr(d,quiet=false){
  const sourceId=d.sourceId||d.id,blob=await getMedia(sourceId);if(!blob){if(!quiet)alert('Imagem não localizada neste navegador.');return 0}if(d.kind==='pdf'){if(!quiet)alert('PDF permanece como evidência nesta versão.');return 0}
  const siblings=state.docs.filter(x=>(x.sourceId||x.id)===sourceId);if(siblings.some(x=>x.itemNo||x.value)){return siblings.filter(x=>x.itemNo).length}
  const r=await Tesseract.recognize(blob,'por',{logger:m=>{if(!quiet&&m.status==='recognizing text')$('ocrStatus').textContent='OCR '+Math.round((m.progress||0)*100)+'%'}});
- const text=r.data.text||'';applyDetectedGroup(d,text);const items=parseOcr(text,d);if(!items.length){d.ocr=text;d.ocrDone=true;save();return 0}
+ const text=r.data.text||'';applyDetectedGroup(d,text);const items=parseOcr(text,d);if(!items.length){d.ocr=text;d.ocrDone=true;d.ocrIssue=text.trim()?'Texto lido, mas nenhum pagamento identificado':'Nenhum texto reconhecido na imagem';save();return 0}
  const idx=state.docs.findIndex(x=>x.id===d.id),newDocs=items.map((it,n)=>({id:uid(),sourceId,name:d.name,path:d.path,group:d.group,groupDetection:d.groupDetection,date:it.date||d.date,benef:it.benef,value:it.value,obs:'OCR: '+it.line,status:'PENDENTE',bankId:null,ocr:text,kind:d.kind,itemNo:n+1,ocrDone:true}));
  state.docs.splice(idx,1,...newDocs);save();return newDocs.length
 }
 $('ocrBtn').onclick=async()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um arquivo/pagamento.');$('ocrBtn').disabled=true;$('ocrStatus').textContent='Lendo arquivo...';try{const n=await processSourceOcr(d,false);const first=state.docs.find(x=>(x.sourceId||x.id)===(d.sourceId||d.id));if(first)state.selectedDoc=first.id;$('ocrStatus').textContent=n?n+' pagamento(s) identificado(s) neste arquivo.':'OCR concluído; revise manualmente.';render();await fillDoc()}catch(e){$('ocrStatus').textContent='Falha no OCR. Revise manualmente.'}finally{$('ocrBtn').disabled=false}};
-$('batchOcrBtn').onclick=async()=>{const candidates=state.docs.filter(d=>d.date&&d.date.startsWith(selectedMonth())&&d.kind!=='pdf'&&!d.itemNo&&(!d.ocrDone||!d.value)),sources=[];const seen=new Set();for(const d of candidates){const s=d.sourceId||d.id;if(!seen.has(s)){seen.add(s);sources.push(d)}}if(!sources.length)return alert('Não há imagens pendentes de leitura em '+selectedMonth()+'. Os filtros de grupo não limitam esta operação.');$('batchOcrBtn').disabled=true;let files=0,pays=0,errors=0;try{for(const d of sources){$('batchOcrBtn').textContent='Lendo '+(files+1)+'/'+sources.length;try{pays+=await processSourceOcr(d,true)}catch(e){errors++}files++;render()}alert('Mês '+selectedMonth()+': '+files+' imagem(ns) verificadas, '+pays+' pagamento(s) identificado(s), '+errors+' falha(s). Os filtros de grupo não impedem a leitura. Arquivos sem valores reconhecíveis continuam para revisão.')}finally{$('batchOcrBtn').disabled=false;$('batchOcrBtn').textContent='Ler imagens do mês';render()}};
+$('batchOcrBtn').onclick=async()=>{const candidates=state.docs.filter(d=>d.date&&d.date.startsWith(selectedMonth())&&d.kind!=='pdf'&&!d.itemNo&&(!d.ocrDone||!d.value)),sources=[];const seen=new Set();for(const d of candidates){const s=d.sourceId||d.id;if(!seen.has(s)){seen.add(s);sources.push(d)}}if(!sources.length)return alert('Não há imagens pendentes de leitura em '+selectedMonth()+'. Os filtros de grupo não limitam esta operação.');$('batchOcrBtn').disabled=true;let files=0,pays=0,errors=0,withoutPayments=0;try{for(const d of sources){$('batchOcrBtn').textContent='Lendo '+(files+1)+'/'+sources.length;try{const n=await processSourceOcr(d,true);pays+=n;if(!n)withoutPayments++}catch(e){errors++;d.ocrIssue='Erro de leitura: '+String(e.message||e)}files++;render()}alert('Mês '+selectedMonth()+': '+files+' imagem(ns) verificadas, '+pays+' pagamento(s) identificado(s), '+errors+' falha(s), '+withoutPayments+' sem pagamentos identificados. Os filtros de grupo não impedem a leitura. Consulte os arquivos pendentes para revisão.')}finally{$('batchOcrBtn').disabled=false;$('batchOcrBtn').textContent='Ler imagens do mês';render()}};
 
 $('saveDocEdit').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');const oldGroup=d.group;d.group=$('editGroup').value||'SEM GRUPO';d.benef=$('editBenef').value.trim();d.value=$('editValue').value?Number($('editValue').value):null;d.date=$('editDate').value;d.obs=$('editObs').value.trim();if(d.sourceId&&oldGroup!==d.group){state.docs.filter(x=>x.sourceId===d.sourceId).forEach(x=>x.group=d.group)}save();render();fillDoc()};
 $('applyGroupSource').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');const g=$('editGroup').value,source=d.sourceId||d.id,items=state.docs.filter(x=>(x.sourceId||x.id)===source);if(!confirm('Aplicar '+g+' aos '+items.length+' item(ns) deste arquivo? Nenhum vínculo bancário será alterado.'))return;items.forEach(x=>x.group=g);save();render();fillDoc();};
