@@ -156,7 +156,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <div class="toolbar"><button class="smallBtn" id="ocrBtn">Ler imagem (OCR)</button><span class="muted" id="ocrStatus"></span></div>
     <div id="ocrRaw" class="ocrText" style="display:none"></div>
     <div class="detailGrid">
-      <div><label>Grupo<select id="editGroup"><option>SEM GRUPO</option><option>ESCRITORIO</option><option>EVENTOS</option><option>LS</option><option>DIZZON</option><option>KART LOVE</option><option>VINA CALMON</option><option>TIMBALADA</option><option>REPRESENTAÇÃO DE BANDAS</option></select></label></div>
+      <div><label>Grupo<select id="editGroup"><option>SEM GRUPO</option><option>ESCRITORIO</option><option>EVENTOS</option><option>LS</option><option>DIZZON</option><option>KART LOVE</option><option>VINA CALMON</option><option>VINNY NOGUEIRA</option><option>TIMBALADA</option><option>REPRESENTAÇÃO DE BANDAS</option></select></label></div>
       <div><label>Beneficiário / favorecido<input id="editBenef" placeholder="Preencher quando necessário"></label></div>
       <div><label>Valor do espelho<input id="editValue" type="number" step="0.01" placeholder="0,00"></label></div>
       <div><label>Data do pagamento<input id="editDate" type="date"></label></div>
@@ -189,7 +189,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <table><thead><tr><th>Data</th><th>Grupo</th><th>Arquivo</th><th>Motivo</th></tr></thead><tbody id="pendingBody"></tbody></table>
   </div>
 
-  <div class="foot">MVP · Conciliação Diária de Pagamentos · competência operacional: 2026 · processamento local · versão 2026.11.16.5</div>
+  <div class="foot">MVP · Conciliação Diária de Pagamentos · competência operacional: 2026 · processamento local · versão 2026.11.16.6</div>
 </main>
 </div>
 
@@ -197,7 +197,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
   <div class="modalHead"><div><h2>Adicionar espelhos do WhatsApp</h2><div class="muted">Você pode adicionar novos arquivos a qualquer momento. Os já carregados são preservados e arquivos com os mesmos pagamentos são recuperados sem duplicar. Nomes iguais podem pertencer a grupos diferentes. Uma imagem pode conter vários pagamentos.</div></div><button class="close" data-close="docsModal">×</button></div>
   <div class="detailGrid" style="margin:12px 0">
   <div><label>Grupo destes arquivos (opcional)
-    <select id="uploadGroup"><option value="">Detectar automaticamente</option><option>ESCRITORIO</option><option>EVENTOS</option><option>LS</option><option>DIZZON</option><option>KART LOVE</option><option>VINA CALMON</option><option>TIMBALADA</option><option>REPRESENTAÇÃO DE BANDAS</option></select>
+    <select id="uploadGroup"><option value="">Detectar automaticamente</option><option>ESCRITORIO</option><option>EVENTOS</option><option>LS</option><option>DIZZON</option><option>KART LOVE</option><option>VINA CALMON</option><option>VINNY NOGUEIRA</option><option>TIMBALADA</option><option>REPRESENTAÇÃO DE BANDAS</option></select>
   </label></div>
 </div>
 <div class="drop"><input id="docFiles" type="file" accept=".zip,.jpg,.jpeg,.png,.webp,.pdf" multiple></div>
@@ -256,18 +256,19 @@ const inferDate=name=>{
 };
 const inferGroup=path=>{
  const raw=String(path||''),p=raw.replace(/\\/g,'/').split('/').filter(Boolean);
- const aliases={'TIMBALADA':'TIMBALADA','REPRESENTACAO BANDAS':'REPRESENTAÇÃO DE BANDAS','REPRESENTACAO DE BANDAS':'REPRESENTAÇÃO DE BANDAS','REPRESENTACAO BANDAS':'REPRESENTAÇÃO DE BANDAS','EVENTOS':'EVENTOS','ESCRITORIO':'ESCRITORIO','WET':'ESCRITORIO','DIZZON':'DIZZON','KART LOVE':'KART LOVE','VINA CALMON':'VINA CALMON','LEO SANTANA':'LS','LS':'LS'};
+ const aliases={'VINNY NOGUEIRA':'VINNY NOGUEIRA','TIMBALADA':'TIMBALADA','REPRESENTACAO BANDAS':'REPRESENTAÇÃO DE BANDAS','REPRESENTACAO DE BANDAS':'REPRESENTAÇÃO DE BANDAS','REPRESENTACAO BANDAS':'REPRESENTAÇÃO DE BANDAS','EVENTOS':'EVENTOS','ESCRITORIO':'ESCRITORIO','WET':'ESCRITORIO','DIZZON':'DIZZON','KART LOVE':'KART LOVE','VINA CALMON':'VINA CALMON','LEO SANTANA':'LS','LS':'LS'};
  const classify=text=>{const n=norm(text).replace(/[^A-Z0-9]+/g,' ').trim();for(const [term,group] of Object.entries(aliases)){if((' '+n+' ').includes(' '+term+' '))return group}return'SEM GRUPO'};
  if(p.length>1){const fromFolder=classify(p[p.length-2]);if(fromFolder!=='SEM GRUPO')return fromFolder}
  return classify(p[p.length-1]||raw);
 };
 function detectSavedGroup(text){
  const header=norm(String(text||'').split(/\n/).slice(0,3).join(' ')).replace(/[^A-Z0-9]+/g,' ');
+ if(/\bVINNY NOGUEIRA\b/.test(header))return 'VINNY NOGUEIRA';
  if(/\bTIMBALADA\b/.test(header))return 'TIMBALADA';
  const normalized=' '+norm(text).replace(/REPRESENTA[A-Z]{2,8}\b/g,'REPRESENTACAO').replace(/[^A-Z0-9]+/g,' ').replace(/\s+/g,' ').trim()+' ';
- const aliases=[['LEO SANTANA','LS'],['LEO SANTANA PRODUCOES','LS'],['LS','LS'],['TIMBALADA','TIMBALADA'],['REPRESENTACAO DE BANDAS','REPRESENTAÇÃO DE BANDAS'],['REPRESENTACAO BANDAS','REPRESENTAÇÃO DE BANDAS'],['REPRESENTACAO DE BANDA','REPRESENTAÇÃO DE BANDAS']];
+ const aliases=[['VINNY NOGUEIRA','VINNY NOGUEIRA'],['LEO SANTANA','LS'],['LEO SANTANA PRODUCOES','LS'],['LS','LS'],['TIMBALADA','TIMBALADA'],['REPRESENTACAO DE BANDAS','REPRESENTAÇÃO DE BANDAS'],['REPRESENTACAO BANDAS','REPRESENTAÇÃO DE BANDAS'],['REPRESENTACAO DE BANDA','REPRESENTAÇÃO DE BANDAS']];
  if(/\bREPRESENTACAO\b[\s\S]{0,100}\bBANDAS\b/.test(normalized))return 'REPRESENTAÇÃO DE BANDAS';
- if(/\b(?:IN PALADA|TIM PALA DA|TIM PALADA|IM PALADA|IM PA ADA|TIMPALAD|FIMPALADA)\b/.test(normalized.slice(0,240)))return 'TIMBALADA';
+ if(/\b(?:IN PALADA|TIM PALA DA|TIM PALADA|IM PALADA|IM PA ADA|TIMPALAD|FIMPALADA|PIPA IADA)\b/.test(normalized.slice(0,240)))return 'TIMBALADA';
  const candidates=[...aliases,...allGroups().filter(g=>g!=='LS').map(g=>[norm(g),g])];
  const hits=[...new Set(candidates.filter(([word])=>normalized.includes(' '+word+' ')).map(([,g])=>g))];
  return hits.length===1?hits[0]:null;
@@ -641,7 +642,7 @@ $('auditExport').onclick=()=>{
  const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='auditoria-movimentos-'+selectedMonth()+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 };
-const BASE_GROUPS=['ESCRITORIO','EVENTOS','LS','DIZZON','KART LOVE','VINA CALMON','TIMBALADA','REPRESENTAÇÃO DE BANDAS'];
+const BASE_GROUPS=['ESCRITORIO','EVENTOS','LS','DIZZON','KART LOVE','VINA CALMON','VINNY NOGUEIRA','TIMBALADA','REPRESENTAÇÃO DE BANDAS'];
 function allGroups(){return [...new Set([...BASE_GROUPS,...state.groups,...state.docs.map(d=>d.group)].filter(g=>g&&g!=='SEM GRUPO'))].sort((a,b)=>a.localeCompare(b,'pt-BR'))}
 function refreshGroupSelectors(){
  const groups=allGroups();
@@ -758,16 +759,21 @@ async function readPaymentTable(blob,worker,fullText){
  const ctx=source.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,source.width,source.height);ctx.drawImage(bitmap,0,0);bitmap.close();
  const grid=detectPaymentGrid(ctx.getImageData(0,0,source.width,source.height).data,source.width,source.height);if(!grid)return null;
  const rows=[];let total=null,unreadRows=0;
- const cell=async(x1,y1,x2,y2)=>{
+ const cell=async(x1,y1,x2,y2,numeric=false)=>{
+  // Amounts are right-aligned: exclude the currency label and read one numeric line.
+  if(numeric)x1+=Math.floor((x2-x1)*.22);
   const w=x2-x1-5,h=y2-y1-5;if(w<5||h<5)return '';
-  const canvas=document.createElement('canvas');canvas.width=w*3+30;canvas.height=h*3+30;
-  const c=canvas.getContext('2d');c.fillStyle='#fff';c.fillRect(0,0,canvas.width,canvas.height);c.drawImage(source,x1+3,y1+3,w,h,15,15,w*3,h*3);
-  const r=await worker.recognize(canvas);return (r.data.text||'').replace(/\s+/g,' ').trim();
+  const scale=numeric?4:3,canvas=document.createElement('canvas');canvas.width=w*scale+30;canvas.height=h*scale+30;
+  const c=canvas.getContext('2d');c.fillStyle='#fff';c.fillRect(0,0,canvas.width,canvas.height);c.drawImage(source,x1+3,y1+3,w,h,15,15,w*scale,h*scale);
+  if(numeric)await worker.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789.,'});
+  try{const r=await worker.recognize(canvas);return (r.data.text||'').replace(/\s+/g,' ').trim();}
+  finally{if(numeric)await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});}
  };
  for(let row=1;row<grid.ys.length-1;row++){
   const y1=grid.ys[row],y2=grid.ys[row+1];if(y2-y1<15)continue;
-  const cells=[];for(let col=0;col<5;col++)cells.push(await cell(grid.xs[col],y1,grid.xs[col+1],y2));
+  const cells=[];for(let col=0;col<5;col++)cells.push(await cell(grid.xs[col],y1,grid.xs[col+1],y2,col===4));
   if(/FORNECEDOR|DESCRI[CÇ][AÃ]O/.test(norm(cells[0]+' '+cells[1])))continue;
+  if(!/\d+(?:\.\d{3})*,\d{2}/.test(cells[4])||!brNumber(cells[4]))cells[4]=await cell(grid.xs[4],y1,grid.xs[5],y2,false);
   const valueMatch=cells[4].match(/\d+(?:\.\d{3})*,\d{2}/),value=valueMatch?brNumber(valueMatch[0]):0;
   const date=cells[3].match(/\d{1,2}\/\d{1,2}\/\d{4}/);
   if(value&&date&&cells[0])rows.push([cells[0],cells[1],date[0],valueMatch[0]].join('\t'));
