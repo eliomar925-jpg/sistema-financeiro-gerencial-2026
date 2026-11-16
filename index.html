@@ -412,7 +412,7 @@ function parseOcr(text,doc){
   const dm=line.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);let date=doc.date;
   if(dm){let y=dm[3];if(y.length===2)y='20'+y;date=y+'-'+dm[2].padStart(2,'0')+'-'+dm[1].padStart(2,'0')}
   let left=line.slice(0,hit.index).replace(/\b(?:BOLETO|PIX|TED|TRANSFER[EÊ]NCIA|FATURA|DINHEIRO)\b/gi,' ').replace(/\d{1,2}\/\d{1,2}\/\d{2,4}/g,' ').replace(/\s+/g,' ').trim();
-  left=left.split(/\bCACH[EÊ]\b/i)[0].trim()||left;
+  left=left.split(/\bCACH[EÊÉ](?=\s|$)/i)[0].trim()||left;
   if(left.length>90)left=left.slice(0,90);items.push({value,date,benef:left||'REVISAR OCR',line});
  }return items;
 }
