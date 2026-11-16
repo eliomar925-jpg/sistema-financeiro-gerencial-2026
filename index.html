@@ -159,7 +159,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
 </div>
 </div>
     <div class="preview" id="docPreview"><span class="muted">A prévia do espelho aparece aqui.</span></div>
-    <div class="toolbar"><button class="smallBtn" id="ocrBtn">Ler imagem (OCR)</button><span class="muted" id="ocrStatus"></span></div>
+    <div class="toolbar"><button class="smallBtn" id="ocrBtn">Revisar leitura do espelho</button><span class="muted" id="ocrStatus"></span></div>
     <div id="ocrRaw" class="ocrText" style="display:none"></div>
     <div class="detailGrid">
       <div><label>Grupo<select id="editGroup"><option>SEM GRUPO</option><option>ESCRITORIO</option><option>EVENTOS</option><option>LS</option><option>DIZZON</option><option>KART LOVE</option><option>VINA CALMON</option><option>VINNY NOGUEIRA</option><option>TIMBALADA</option><option>REPRESENTAÇÃO DE BANDAS</option></select></label></div>
@@ -195,7 +195,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <table><thead><tr><th>Data</th><th>Grupo</th><th>Arquivo</th><th>Motivo</th></tr></thead><tbody id="pendingBody"></tbody></table>
   </div>
 
-  <div class="foot">MVP · Conciliação Diária de Pagamentos · competência operacional: 2026 · processamento local · versão 2026.11.16.8</div>
+  <div class="foot">MVP · Conciliação Diária de Pagamentos · competência operacional: 2026 · processamento local · versão 2026.11.16.9</div>
 </main>
 </div>
 
@@ -314,6 +314,7 @@ async function identifyImport(name,date,blob,requestedGroup,kind){
   const payments=related.filter(d=>d.itemNo||d.value);
   if(payments.length){
    if(items.length&&ocrMatchesPayments(items,payments)){matches.push(first);continue;}
+   if(sameName&&first.group===group&&items.length){try{const repair=planSourceRepair(first,text);matches.push(first);continue;}catch(e){}}
    if(items.some(it=>payments.some(d=>d.group===group&&Math.abs(it.value-d.value)<.01&&it.date===d.date)))possibleDuplicate=true;
    if(items.some(it=>payments.some(d=>paymentIdentityMatches(it,d))))throw new Error('Parte dos pagamentos desta imagem já está cadastrada. A importação foi interrompida para evitar duplicidade; revise os itens existentes');
    // Same filename or even a legacy image attached to the wrong record is not identity.
@@ -359,13 +360,53 @@ function ocrMatchesPayments(items,payments){
  for(const d of payments){const i=remaining.findIndex(it=>Math.abs(it.value-d.value)<.01&&it.date===d.date&&tokenOverlap(it.benef,d.benef)>=2);if(i<0)return false;remaining.splice(i,1);}
  return true;
 }
+function validPaymentDate(value){
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return false;
+ const dt=new Date(value+'T12:00:00Z');return !isNaN(dt)&&dt.toISOString().slice(0,10)===value;
+}
+function planSourceRepair(doc,text){
+ const source=doc.sourceId||doc.id,payments=state.docs.filter(d=>(d.sourceId||d.id)===source&&(d.itemNo||d.value));
+ const items=parseOcr(text,doc),total=String(text).match(/(?:^|\n)TOTAL R\$ ([\d.,]+)\s*$/);
+ if(!payments.length||!total||items.length!==String(text).split('\n').filter(line=>line.includes('\t')).length||!items.length||Math.round(items.reduce((sum,it)=>sum+it.value,0)*100)!==Math.round(brNumber(total[1])*100))throw new Error('A revisão exige tabela completa, datas válidas e soma igual ao total do espelho.');
+ const remaining=items.map((item,index)=>({item,index})),updates=[];
+ for(const old of payments){
+  const matches=remaining.filter(({item})=>{
+   const expected=norm(item.benef).replace(/[^A-Z0-9]+/g,' ').trim(),actual=norm(old.benef).replace(/[^A-Z0-9]+/g,' ').trim();
+   return Math.round(item.value*100)===Math.round(old.value*100)&&(tokenOverlap(item.benef,old.benef)>=2||actual===expected||actual.startsWith(expected+' '));
+  });
+  if(matches.length!==1)throw new Error('Não foi possível associar cada pagamento existente a uma única linha. Nenhum registro foi alterado.');
+  const match=matches[0];remaining.splice(remaining.indexOf(match),1);
+  if(old.date!==match.item.date){
+   if(validPaymentDate(old.date)||old.status==='CONCILIADO'||old.bankId||(old.bankIds||[]).length)throw new Error('Há data válida diferente ou vínculo bancário no pagamento. Confira este item manualmente; nenhum registro foi alterado.');
+   updates.push({id:old.id,oldDate:old.date,date:match.item.date,benef:match.item.benef,value:match.item.value});
+  }
+ }
+ for(const {item} of remaining)if(state.docs.some(other=>(other.sourceId||other.id)!==source&&(other.itemNo||other.value)&&(paymentIdentityMatches(item,other)||(other.group===doc.group&&other.date===item.date&&Math.round(other.value*100)===Math.round(item.value*100)))))throw new Error('Uma linha ausente pode já estar em outro arquivo. Confira antes de incluir; nenhum registro foi alterado.');
+ return {source,updates,additions:remaining.map(x=>x.item),count:items.length,total:brNumber(total[1])};
+}
+function applySourceRepair(doc,text,quiet=false){
+ const plan=planSourceRepair(doc,text);
+ if(!plan.updates.length&&!plan.additions.length)return plan.count;
+ if(quiet)throw new Error('Leitura antiga precisa de revisão. Selecione um pagamento deste arquivo e clique em Revisar leitura do espelho.');
+ const preview=['REVISAR ESTE ESPELHO',...plan.updates.map(x=>x.benef+': corrigir data '+identificationDate(x.oldDate)+' → '+identificationDate(x.date)),...plan.additions.map(x=>'Incluir linha ausente: '+x.benef+' · '+identificationDate(x.date)+' · '+money(x.value)),plan.count+' pagamentos · total '+money(plan.total),'Os registros atuais serão mantidos. Nenhuma conciliação será confirmada.','Aplicar esta revisão?'].join('\n');
+ if(!confirm(preview))throw new Error('Revisão cancelada. Nenhum registro foi alterado.');
+ const before=state.docs.map(d=>({...d}));
+ try{
+  const timestamp=new Date().toISOString();
+  for(const update of plan.updates){const old=state.docs.find(d=>d.id===update.id);old.ocrHistory=[...(old.ocrHistory||[]),{at:timestamp,date:old.date,reason:'Data inválida corrigida após revisão do espelho',newDate:update.date}];old.date=update.date;}
+  let itemNo=Math.max(0,...state.docs.filter(d=>(d.sourceId||d.id)===plan.source).map(d=>Number(d.itemNo)||0));
+  for(const item of plan.additions)state.docs.push({id:uid(),sourceId:plan.source,sourceHash:doc.sourceHash,name:doc.name,path:doc.path,kind:doc.kind,group:doc.group,groupDetection:doc.groupDetection,date:item.date,sourceDate:inferDate(doc.path||doc.name),benef:item.benef,value:item.value,itemNo:++itemNo,status:'PENDENTE',bankId:null,ocr:text,ocrDone:true,obs:'Linha recuperada após revisão do espelho: '+item.line});
+  state.docs.filter(d=>(d.sourceId||d.id)===plan.source).forEach(d=>{d.ocr=text;d.ocrDone=true;d.ocrIssue='';});save();
+ }catch(e){state.docs=before;throw e;}
+ return plan.count;
+}
 async function recoverImportedSource(existing,blob,group,batchId,verifiedText){
  const source=existing.sourceId||existing.id,related=state.docs.filter(d=>(d.sourceId||d.id)===source),payments=related.filter(d=>d.itemNo||d.value);
  let text=null;
  // A filename is only a candidate: verify the image against existing payments first.
  if(payments.length&&existing.kind!=='pdf'){
   text=verifiedText??await readImageText(blob,true);
-  if(!ocrMatchesPayments(parseOcr(text,existing),payments))throw new Error('Mesmo nome e data, mas o conteúdo da imagem não corresponde aos pagamentos cadastrados em '+existing.group+'. Nenhuma imagem ou pagamento deste cadastro foi substituído');
+  if(!ocrMatchesPayments(parseOcr(text,existing),payments)){try{planSourceRepair(existing,text);}catch(e){throw new Error('Mesmo nome e data, mas o conteúdo da imagem não corresponde aos pagamentos cadastrados em '+existing.group+'. Nenhuma imagem ou pagamento deste cadastro foi substituído');}applySourceRepair(existing,text,false);}
  }
  await putMedia(source,blob);
  for(const d of related){
@@ -499,7 +540,8 @@ function parseOcr(text,doc){
   const vals=[...line.matchAll(/(?:R\$\s*)?(\d+(?:\.\d{3})*,\d{2})(?!\d)/g)];if(!vals.length)continue;
   const hit=vals[vals.length-1],value=brNumber(hit[0]);if(!value)continue;
   const dm=line.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);let date=doc.date;
-  if(dm){let y=dm[3];if(y.length===2)y='20'+y;date=y+'-'+dm[2].padStart(2,'0')+'-'+dm[1].padStart(2,'0')}
+  if(dm){let y=dm[3];if(y.length===2)y='20'+y;date=y+'-'+dm[2].padStart(2,'0')+'-'+dm[1].padStart(2,'0');if(!validPaymentDate(date))continue;}
+  if(!validPaymentDate(date))continue;
   let left=line.slice(0,hit.index).replace(/\b(?:BOLETO|PIX|TED|TRANSFER[EÊ]NCIA|FATURA|DINHEIRO)\b/gi,' ').replace(/\d{1,2}\/\d{1,2}\/\d{2,4}/g,' ').replace(/\s+/g,' ').trim();
   left=left.split(/\bCACH[EÊÉ](?=\s|$)/i)[0].trim()||left;
   if(left.length>90)left=left.slice(0,90);items.push({value,date,benef:left||'REVISAR OCR',line});
@@ -533,6 +575,7 @@ function identifyPaymentMatches(docs,banks,rules={},allDocs=docs){
   const expected=rules[d.group]||d.expectedAccount||'';
   const assign=(list,status,reason,selected=false)=>{row.candidateIds=list.map(b=>b.id);row.bankIds=selected?list.map(b=>b.id):[];row.bankDates=[...new Set(list.map(b=>b.date))];row.accounts=[...new Set(list.map(crossAccountId))];row.status=status;row.reason=reason;return row;};
   if(d.status==='CONCILIADO'){const linked=banks.filter(b=>[d.bankId,...(d.bankIds||[])].includes(b.id));return assign(linked,'JÁ CONCILIADO','Vínculo existente preservado.',false);}
+  if(!validPaymentDate(d.date))return assign([],'REVISAR DATA DO ESPELHO','A data lida é inválida. Abra o pagamento e clique em Revisar leitura do espelho antes de buscar no banco.');
   const sameValue=(byValue.get(Math.round(d.value*100))||[]).filter(b=>(!b.matchedDoc||b.matchedDoc===d.id)&&(!reserved.has(b.id)||reserved.get(b.id)===d.id)),near=sameValue.filter(b=>dateDiff(b.date,d.date)<=3);
   const exact=near.filter(b=>b.date===d.date&&identificationNameMatch(d,b)),allowed=exact.filter(b=>!expected||crossAccountId(b)===expected);
   if(allowed.length===1){const b=allowed[0];if(!crossAccountId(b).replace(/[^0-9]/g,''))return assign(allowed,'CONFERIR CONTA','O extrato não informa agência/conta.');return assign(allowed,'IDENTIFICADO',expected?'Favorecido, valor, data e conta definida coincidem.':'Candidato único por favorecido, valor e data; conta do extrato apresentada para conferência.',true);}
@@ -608,9 +651,14 @@ function runIdentification(){
  const docs=currentDocs(),rows=identifyPaymentMatches(docs,state.banks,state.accountRules||{},state.docs);
  const safe=rows.filter(r=>r.status==='IDENTIFICADO'||r.status==='JÁ CONCILIADO').length,found=rows.filter(r=>r.candidateIds.length).length,pending=rows.length-safe;
  const unread=docs.filter(d=>!d.value&&!d.itemNo).length;
- $('identificationSummary').innerHTML='<strong>'+rows.length+' pagamento(s) no espelho · '+found+' com candidato no banco · '+safe+' identificado(s) · '+pending+' para conferir</strong><p class="muted">Escopo: '+identificationEscape(selectedMonth())+($('filterGroup').value?' · '+identificationEscape($('filterGroup').value):' · todos os grupos')+'. Datas do espelho e do banco permanecem separadas. Identificado não significa conciliado.</p>'+(!state.banks.length?'<p class="red">Carregue os extratos bancários para realizar o cruzamento.</p>':'')+(unread?'<p class="amber">'+unread+' arquivo(s) ainda sem pagamento extraído. A identificação não inclui esses arquivos.</p>':'');
- const body=$('identificationBody');body.dataset.generated='true';body.innerHTML=rows.map((r,i)=>{const d=state.docs.find(x=>x.id===r.docId);return '<tr><td><strong>'+identificationEscape(d.group||'SEM GRUPO')+'</strong><br>'+identificationEscape(d.benef||d.name)+'</td><td>'+money(d.value)+'</td><td>'+identificationEscape(identificationDate(r.docDate)||'Sem data')+(d.dateWarning?'<br><span class="amber">'+identificationEscape(d.dateWarning)+'</span>':'')+'</td><td>'+identificationEscape(r.bankDates.map(identificationDate).join(' / ')||'—')+'</td><td>'+identificationEscape(r.accounts.join(' | ')||'—')+'</td><td><span class="pill '+(r.status==='IDENTIFICADO'||r.status==='JÁ CONCILIADO'?'ok':'warn')+'">'+identificationEscape(r.status)+'</span><br><span class="muted">'+identificationEscape(r.reason)+'</span></td><td><button class="smallBtn" data-identification="'+i+'">Conferir</button></td></tr>';}).join('')||'<tr><td colspan="7">Nenhum pagamento identificado nos espelhos para os filtros selecionados.</td></tr>';
- body.querySelectorAll('[data-identification]').forEach(button=>button.onclick=()=>openReconciliationReview(rows[Number(button.dataset.identification)].docId));
+ $('identificationSummary').innerHTML='<strong>'+rows.length+' pagamento(s) em '+new Set(docs.filter(d=>d.value>0).map(d=>d.sourceId||d.id)).size+' espelho(s) · '+found+' com candidato no banco · '+safe+' identificado(s) · '+pending+' para conferir</strong><p class="muted">Escopo: '+identificationEscape(selectedMonth())+($('filterGroup').value?' · '+identificationEscape($('filterGroup').value):' · todos os grupos')+'. Datas do espelho e do banco permanecem separadas. Identificado não significa conciliado.</p>'+(!state.banks.length?'<p class="red">Carregue os extratos bancários para realizar o cruzamento.</p>':'')+(unread?'<p class="amber">'+unread+' arquivo(s) ainda sem pagamento extraído. A identificação não inclui esses arquivos.</p>':'');
+ const body=$('identificationBody');body.dataset.generated='true';body.innerHTML=rows.map((r,i)=>{const d=state.docs.find(x=>x.id===r.docId);return '<tr><td><strong>'+identificationEscape(d.group||'SEM GRUPO')+'</strong><br>'+identificationEscape(d.benef||d.name)+'<br><span class="muted">Arquivo: '+identificationEscape(d.name||'Sem nome')+'</span></td><td>'+money(d.value)+'</td><td>'+identificationEscape(identificationDate(r.docDate)||'Sem data')+(d.dateWarning?'<br><span class="amber">'+identificationEscape(d.dateWarning)+'</span>':'')+'</td><td>'+identificationEscape(r.bankDates.map(identificationDate).join(' / ')||'—')+'</td><td>'+identificationEscape(r.accounts.join(' | ')||'—')+'</td><td><span class="pill '+(r.status==='IDENTIFICADO'||r.status==='JÁ CONCILIADO'?'ok':'warn')+'">'+identificationEscape(r.status)+'</span><br><span class="muted">'+identificationEscape(r.reason)+'</span></td><td><button class="smallBtn" data-identification="'+i+'">'+(validPaymentDate(d.date)?'Conferir':'Revisar espelho')+'</button></td></tr>';}).join('')||'<tr><td colspan="7">Nenhum pagamento identificado nos espelhos para os filtros selecionados.</td></tr>';
+ body.querySelectorAll('[data-identification]').forEach(button=>button.onclick=async()=>{
+  const d=state.docs.find(doc=>doc.id===rows[Number(button.dataset.identification)].docId);
+  if(validPaymentDate(d.date))return openReconciliationReview(d.id);
+  button.disabled=true;button.textContent='Lendo espelho...';
+  try{await processSourceOcr(d,false);render();runIdentification();}catch(e){alert(String(e.message||e));button.disabled=false;button.textContent='Revisar espelho';}
+ });
  setSimpleView('identification');
 }
 function renderIdentificationAccounts(){
@@ -933,7 +981,7 @@ async function readSourceOcr(d,quiet=false){
  const text=!d.requiresReview&&!d.ocrDone&&d.ocr?d.ocr:await readImageText(blob,quiet);
  const items=parseOcr(text,d);
  if(siblings.some(x=>x.itemNo||x.value)){
-  const payments=siblings.filter(x=>x.itemNo||x.value);if(!ocrMatchesPayments(items,payments))throw new Error('OCR diferente dos pagamentos existentes. Revise o cadastro; nenhum pagamento foi alterado.');
+  const payments=siblings.filter(x=>x.itemNo||x.value);if(!ocrMatchesPayments(items,payments))return applySourceRepair(d,text,quiet);
   applyDetectedGroup(d,text);siblings.forEach(x=>{x.ocr=text;x.ocrDone=true;x.ocrIssue='';});save();return payments.length;
  }
  if(items.some(it=>state.docs.some(other=>(other.sourceId||other.id)!==sourceId&&(other.itemNo||other.value)&&(paymentIdentityMatches(it,other)||(other.group===d.group&&it.date===other.date&&Math.abs(it.value-other.value)<.01)))))throw new Error('Um pagamento desta imagem já aparece em outro arquivo. Revise o cadastro existente; nenhum pagamento novo foi gerado.');
