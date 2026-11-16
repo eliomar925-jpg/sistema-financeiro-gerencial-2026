@@ -293,13 +293,14 @@ async function identifyImport(name,date,blob,requestedGroup,kind){
  if(kind==='image'){try{text=await readImageText(blob,true)}catch(e){ocrError='Falha na leitura: '+String(e?.message||e);text='';}}
  const group=requestedGroup||detectSavedGroup([name,text||''].join(' '))||inferGroup(name),items=text===null?[]:parseOcr(text,{date});
  const sources=new Map();for(const d of state.docs){const key=d.sourceId||d.id;if(!sources.has(key))sources.set(key,[]);sources.get(key).push(d);}
- const matches=[],placeholders=[];let collision=false;
+ const matches=[],placeholders=[];let collision=false,possibleDuplicate=false;
  for(const [source,related] of sources){
   const first=related[0],sameName=canonicalImportName(first.path||first.name)===canonicalImportName(name)&&(first.date===date||inferDate(first.path||first.name)===date);
   if(sameName)collision=true;
   const payments=related.filter(d=>d.itemNo||d.value);
   if(payments.length){
    if(items.length&&ocrMatchesPayments(items,payments)){matches.push(first);continue;}
+   if(items.some(it=>payments.some(d=>d.group===group&&Math.abs(it.value-d.value)<.01&&it.date===d.date)))possibleDuplicate=true;
    if(items.some(it=>payments.some(d=>paymentIdentityMatches(it,d))))throw new Error('Parte dos pagamentos desta imagem já está cadastrada. A importação foi interrompida para evitar duplicidade; revise os itens existentes');
    // Same filename or even a legacy image attached to the wrong record is not identity.
    if(kind==='pdf'&&related.some(d=>d.sourceHash===hash))matches.push(first);
@@ -314,6 +315,7 @@ async function identifyImport(name,date,blob,requestedGroup,kind){
  if(matches.length)return {existing:matches[0],hash,text,group};
  if(placeholders.length>1)throw new Error('Há mais de um arquivo pendente compatível. Revise os arquivos antes de importar');
  if(placeholders.length)return {existing:placeholders[0],hash,text,group};
+ if(possibleDuplicate)return {existing:null,hash,text,group,requiresReview:true,issue:'Já existe pagamento neste grupo com a mesma data e valor, mas o nome precisa de conferência. Imagem guardada sem gerar pagamento.'};
  const requiresReview=!!ocrError||(collision&&(!items.length||group==='SEM GRUPO'));
  return {existing:null,hash,text,group,requiresReview,issue:ocrError||(requiresReview?'Imagem guardada para revisão: há outro arquivo com este nome. Selecione o grupo e confira a leitura; nenhum pagamento novo foi gerado.':'')};
 }
@@ -802,7 +804,7 @@ async function readSourceOcr(d,quiet=false){
   const payments=siblings.filter(x=>x.itemNo||x.value);if(!ocrMatchesPayments(items,payments))throw new Error('OCR diferente dos pagamentos existentes. Revise o cadastro; nenhum pagamento foi alterado.');
   applyDetectedGroup(d,text);siblings.forEach(x=>{x.ocr=text;x.ocrDone=true;x.ocrIssue='';});save();return payments.length;
  }
- if(items.some(it=>state.docs.some(other=>(other.sourceId||other.id)!==sourceId&&(other.itemNo||other.value)&&paymentIdentityMatches(it,other))))throw new Error('Um pagamento desta imagem já aparece em outro arquivo. Revise o cadastro existente; nenhum pagamento novo foi gerado.');
+ if(items.some(it=>state.docs.some(other=>(other.sourceId||other.id)!==sourceId&&(other.itemNo||other.value)&&(paymentIdentityMatches(it,other)||(other.group===d.group&&it.date===other.date&&Math.abs(it.value-other.value)<.01)))))throw new Error('Um pagamento desta imagem já aparece em outro arquivo. Revise o cadastro existente; nenhum pagamento novo foi gerado.');
  d.requiresReview=false;applyDetectedGroup(d,text);if(!items.length){d.ocr=text;d.ocrDone=true;d.ocrIssue=text.trim()?'Texto lido, mas nenhum pagamento identificado':'Nenhum texto reconhecido na imagem';save();return 0}
  const idx=state.docs.findIndex(x=>x.id===d.id),newDocs=items.map((it,n)=>({id:n===0?d.id:uid(),sourceId,sourceHash:d.sourceHash,name:d.name,path:d.path,group:d.group,groupDetection:d.groupDetection,date:it.date||d.date,benef:it.benef,value:it.value,sourceDate:inferDate(d.path||d.name),dateWarning:it.date&&inferDate(d.path||d.name)&&it.date!==inferDate(d.path||d.name)?'Data do pagamento diferente do nome do arquivo':'',obs:'OCR: '+it.line+(it.date&&inferDate(d.path||d.name)&&it.date!==inferDate(d.path||d.name)?' | ATENÇÃO: arquivo '+inferDate(d.path||d.name)+'; pagamento '+it.date:''),status:'PENDENTE',bankId:null,ocr:text,kind:d.kind,itemNo:n+1,ocrDone:true}));
  state.docs.splice(idx,1,...newDocs);save();return newDocs.length
