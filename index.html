@@ -276,6 +276,13 @@ function applyDetectedGroup(source,ocr){
  related.forEach(d=>{d.group=group;d.groupDetection='texto identificado no espelho';});
  return true;
 }
+function canonicalImportName(name){
+ return norm(String(name||'').replace(/\\/g,'/').split('/').pop().replace(/\s*\(\d+\)(?=\.[^.]+$)/,'')).replace(/\s+/g,' ');
+}
+function existingImport(name,date){
+ const key=canonicalImportName(name);
+ return state.docs.find(d=>d.date===date&&canonicalImportName(d.path||d.name)===key);
+}
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 let mediaDbPromise=null;
 function mediaDb(){if(mediaDbPromise)return mediaDbPromise;mediaDbPromise=new Promise((resolve,reject)=>{const q=indexedDB.open('ConciliacaoDiariaPagamentos',1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains('media'))q.result.createObjectStore('media')};q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)});return mediaDbPromise}
@@ -300,20 +307,20 @@ $('processDocs').onclick=async()=>{
    for(const [name,z] of Object.entries(zip.files)){
     if(z.dir)continue;const e=name.split('.').pop().toLowerCase();if(!['jpg','jpeg','png','webp','pdf'].includes(e))continue;
     const date=inferDate(name);if(date&&!date.startsWith('2026-')){outside++;continue}if(!date){unknown++;}
-    const existing=state.docs.find(d=>d.path===name&&d.date===date);
-    if(existing){const source=existing.sourceId||existing.id;if(!(await getMedia(source))){await putMedia(source,await z.async('blob'));existing.ocrDone=false;existing.ocrIssue='Imagem recuperada; pronta para leitura';existing.importBatch=batchId;recovered++;}else duplicates++;continue}
+    const existing=existingImport(name,date);
+    if(existing){const source=existing.sourceId||existing.id;if(!existing.itemNo&&!existing.value&&(!(await getMedia(source))||existing.ocrIssue||!existing.ocrDone)){await putMedia(source,await z.async('blob'));existing.ocrDone=false;existing.ocrIssue='Reimportado para nova leitura';existing.importBatch=batchId;recovered++;}else duplicates++;continue}
     const id=uid(),blob=await z.async('blob');await putMedia(id,blob);
     state.docs.push({id,sourceId:id,name:name.split('/').pop(),path:name,group:uploadGroup||detectSavedGroup(name)||inferGroup(name),importBatch:batchId,date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:e==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
    }
   }else{
    const date=inferDate(f.name);if(date&&!date.startsWith('2026-')){outside++;continue}if(!date){unknown++;}
-   const existing=state.docs.find(d=>d.path===f.name&&d.date===date);
-   if(existing){const source=existing.sourceId||existing.id;if(!(await getMedia(source))){await putMedia(source,f);existing.ocrDone=false;existing.ocrIssue='Imagem recuperada; pronta para leitura';existing.importBatch=batchId;recovered++;}else duplicates++;continue}
+   const existing=existingImport(f.name,date);
+   if(existing){const source=existing.sourceId||existing.id;if(!existing.itemNo&&!existing.value&&(!(await getMedia(source))||existing.ocrIssue||!existing.ocrDone)){await putMedia(source,f);existing.ocrDone=false;existing.ocrIssue='Reimportado para nova leitura';existing.importBatch=batchId;recovered++;}else duplicates++;continue}
    const id=uid();await putMedia(id,f);
    state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:uploadGroup||detectSavedGroup(f.name)||inferGroup(f.name),importBatch:batchId,date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
   }
  }
- save();render();modal('docsModal',false);$('docFiles').value='';$('uploadGroup').value='';$('docFileList').innerHTML='';
+ save();$('filterMonth').value='2026-10';$('filterDate').value='';$('filterGroup').value='';$('filterSearch').value='';render();modal('docsModal',false);$('docFiles').value='';$('uploadGroup').value='';$('docFileList').innerHTML='';
  const newlyAdded=state.docs.filter(x=>!x.ocrDone&&!x.itemNo&&x.kind==='image'&&x.importBatch===batchId);
  let readCount=0;for(const doc of newlyAdded){try{await processSourceOcr(doc,true);readCount++}catch(e){doc.obs=[doc.obs,'Leitura automática pendente'].filter(Boolean).join(' | ')}}
  save();render();
