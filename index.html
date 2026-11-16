@@ -189,7 +189,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <table><thead><tr><th>Data</th><th>Grupo</th><th>Arquivo</th><th>Motivo</th></tr></thead><tbody id="pendingBody"></tbody></table>
   </div>
 
-  <div class="foot">MVP · Conciliação Diária de Pagamentos · competência operacional: 2026 · processamento local · versão 2026.11.16.4</div>
+  <div class="foot">MVP · Conciliação Diária de Pagamentos · competência operacional: 2026 · processamento local · versão 2026.11.16.5</div>
 </main>
 </div>
 
@@ -262,9 +262,12 @@ const inferGroup=path=>{
  return classify(p[p.length-1]||raw);
 };
 function detectSavedGroup(text){
+ const header=norm(String(text||'').split(/\n/).slice(0,3).join(' ')).replace(/[^A-Z0-9]+/g,' ');
+ if(/\bTIMBALADA\b/.test(header))return 'TIMBALADA';
  const normalized=' '+norm(text).replace(/REPRESENTA[A-Z]{2,8}\b/g,'REPRESENTACAO').replace(/[^A-Z0-9]+/g,' ').replace(/\s+/g,' ').trim()+' ';
  const aliases=[['LEO SANTANA','LS'],['LEO SANTANA PRODUCOES','LS'],['LS','LS'],['TIMBALADA','TIMBALADA'],['REPRESENTACAO DE BANDAS','REPRESENTAÇÃO DE BANDAS'],['REPRESENTACAO BANDAS','REPRESENTAÇÃO DE BANDAS'],['REPRESENTACAO DE BANDA','REPRESENTAÇÃO DE BANDAS']];
  if(/\bREPRESENTACAO\b[\s\S]{0,100}\bBANDAS\b/.test(normalized))return 'REPRESENTAÇÃO DE BANDAS';
+ if(/\b(?:IN PALADA|TIM PALA DA|TIM PALADA|IM PALADA|IM PA ADA|TIMPALAD|FIMPALADA)\b/.test(normalized.slice(0,240)))return 'TIMBALADA';
  const candidates=[...aliases,...allGroups().filter(g=>g!=='LS').map(g=>[norm(g),g])];
  const hits=[...new Set(candidates.filter(([word])=>normalized.includes(' '+word+' ')).map(([,g])=>g))];
  return hits.length===1?hits[0]:null;
@@ -467,8 +470,15 @@ $('processBanks').onclick=async()=>{
 
 function brNumber(s){s=String(s||'').replace(/R\$/gi,'').replace(/\s/g,'').replace(/\./g,'').replace(',','.').replace(/[^0-9.-]/g,'');return Number(s)||0}
 function parseOcr(text,doc){
- const lines=String(text||'').split(/\n+/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean),items=[];
- for(const line of lines){
+ const lines=String(text||'').split(/\n+/).map(x=>x.trim()).filter(Boolean),items=[];
+ for(const rawLine of lines){
+  if(rawLine.includes('\t')){
+   const cells=rawLine.split('\t');if(cells.length===4&&!/^(?:TOTAL|FORNECEDOR)\b/.test(norm(cells[0]))){
+    const dm=cells[2].match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/),value=brNumber(cells[3]);
+    if(dm&&value>0&&cells[0]){const date=dm[3]+'-'+dm[2].padStart(2,'0')+'-'+dm[1].padStart(2,'0'),dt=new Date(date+'T12:00:00Z');if(!isNaN(dt)&&dt.toISOString().slice(0,10)===date)items.push({value,date,benef:cells[0],line:cells.join(' | ')});}
+   }continue;
+  }
+  const line=rawLine.replace(/\s+/g,' ');
   const u=norm(line);if(/^(?:TOTAL\b|FORNECEDOR\b)/.test(u))continue;
   const vals=[...line.matchAll(/(?:R\$\s*)?(\d+(?:\.\d{3})*,\d{2})(?!\d)/g)];if(!vals.length)continue;
   const hit=vals[vals.length-1],value=brNumber(hit[0]);if(!value)continue;
@@ -731,11 +741,48 @@ async function prepareOcrImage(blob){
  ctx.putImageData(pixels,0,0);
  const canvas=document.createElement('canvas'),scale=Math.max(2,Math.min(4,3000/w));canvas.width=Math.round(w*scale);canvas.height=Math.round(h*scale);canvas.getContext('2d').drawImage(clean,0,0,canvas.width,canvas.height);return canvas;
 }
+function detectPaymentGrid(data,w,h){
+ const dark=(x,y)=>{const i=(y*w+x)*4;return (data[i]+data[i+1]+data[i+2])/3<100;};
+ const cluster=values=>{const groups=[];for(const v of values){const last=groups[groups.length-1];if(last&&v-last[last.length-1]<=2)last.push(v);else groups.push([v]);}return groups.map(g=>Math.round(g.reduce((a,b)=>a+b,0)/g.length));};
+ const horizontal=[];for(let y=0;y<h;y++){let n=0;for(let x=0;x<w;x++)if(dark(x,y))n++;if(n>w*.8)horizontal.push(y);}
+ const ys=cluster(horizontal);if(ys.length<4)return null;
+ const top=ys[2],bottom=ys[ys.length-1],vertical=[];if(bottom-top<30)return null;
+ for(let x=0;x<w;x++){let n=0;for(let y=top;y<bottom;y++)if(dark(x,y))n++;if(n>(bottom-top)*.65)vertical.push(x);}
+ const xs=cluster(vertical);if(xs.length!==6||xs.some((x,i)=>i&&x-xs[i-1]<w*.06))return null;
+ if(ys[ys.length-1]<h-3)ys.push(h-1);return {xs,ys};
+}
+async function readPaymentTable(blob,worker,fullText){
+ const bitmap=await createImageBitmap(blob),source=document.createElement('canvas');source.width=bitmap.width;source.height=bitmap.height;
+ const ctx=source.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,source.width,source.height);ctx.drawImage(bitmap,0,0);bitmap.close();
+ const grid=detectPaymentGrid(ctx.getImageData(0,0,source.width,source.height).data,source.width,source.height);if(!grid)return null;
+ const rows=[];let total=null,unreadRows=0;
+ const cell=async(x1,y1,x2,y2)=>{
+  const w=x2-x1-5,h=y2-y1-5;if(w<5||h<5)return '';
+  const canvas=document.createElement('canvas');canvas.width=w*3+30;canvas.height=h*3+30;
+  const c=canvas.getContext('2d');c.fillStyle='#fff';c.fillRect(0,0,canvas.width,canvas.height);c.drawImage(source,x1+3,y1+3,w,h,15,15,w*3,h*3);
+  const r=await worker.recognize(canvas);return (r.data.text||'').replace(/\s+/g,' ').trim();
+ };
+ for(let row=1;row<grid.ys.length-1;row++){
+  const y1=grid.ys[row],y2=grid.ys[row+1];if(y2-y1<15)continue;
+  const cells=[];for(let col=0;col<5;col++)cells.push(await cell(grid.xs[col],y1,grid.xs[col+1],y2));
+  if(/FORNECEDOR|DESCRI[CÇ][AÃ]O/.test(norm(cells[0]+' '+cells[1])))continue;
+  const valueMatch=cells[4].match(/\d+(?:\.\d{3})*,\d{2}/),value=valueMatch?brNumber(valueMatch[0]):0;
+  const date=cells[3].match(/\d{1,2}\/\d{1,2}\/\d{4}/);
+  if(value&&date&&cells[0])rows.push([cells[0],cells[1],date[0],valueMatch[0]].join('\t'));
+  else if(value&&(/TOTAL/.test(norm(cells.join(' ')))||row===grid.ys.length-2))total=value;
+  else if(cells[0]&&cells[0].length>3&&y2-y1>30)unreadRows++;
+ }
+ if(!rows.length)return null;
+ const sum=parseOcr(rows.join('\n'),{}).reduce((a,b)=>a+b.value,0);
+ if(unreadRows||total===null||Math.abs(sum-total)>.01)throw new Error('Leitura da tabela precisa de revisão: itens '+money(sum)+'; total '+(total===null?'não identificado':money(total))+'. Nenhum pagamento foi gerado automaticamente.');
+ const group=detectSavedGroup(fullText+' '+rows.join(' '));return (group||'')+'\n'+rows.join('\n')+'\nTOTAL R$ '+total.toFixed(2).replace('.',',');
+}
 async function readImageText(blob,quiet=false){
  let r,worker;try{
  worker=await Tesseract.createWorker('por',1,{logger:m=>{if(!quiet&&m.status==='recognizing text')$('ocrStatus').textContent='OCR '+Math.round((m.progress||0)*100)+'%'}});
  await worker.setParameters({tessedit_pageseg_mode:'6'});
  r=await worker.recognize(await prepareOcrImage(blob));
+ const tableText=await readPaymentTable(blob,worker,r.data.text||'');if(tableText!==null)r.data.text=tableText;
  }catch(e){throw e}finally{if(worker)await worker.terminate()}
 
  return r.data.text||'';
@@ -757,7 +804,7 @@ async function readSourceOcr(d,quiet=false){
  }
  if(items.some(it=>state.docs.some(other=>(other.sourceId||other.id)!==sourceId&&(other.itemNo||other.value)&&paymentIdentityMatches(it,other))))throw new Error('Um pagamento desta imagem já aparece em outro arquivo. Revise o cadastro existente; nenhum pagamento novo foi gerado.');
  d.requiresReview=false;applyDetectedGroup(d,text);if(!items.length){d.ocr=text;d.ocrDone=true;d.ocrIssue=text.trim()?'Texto lido, mas nenhum pagamento identificado':'Nenhum texto reconhecido na imagem';save();return 0}
- const idx=state.docs.findIndex(x=>x.id===d.id),newDocs=items.map((it,n)=>({id:n===0?d.id:uid(),sourceId,sourceHash:d.sourceHash,name:d.name,path:d.path,group:d.group,groupDetection:d.groupDetection,date:it.date||d.date,benef:it.benef,value:it.value,obs:'OCR: '+it.line,status:'PENDENTE',bankId:null,ocr:text,kind:d.kind,itemNo:n+1,ocrDone:true}));
+ const idx=state.docs.findIndex(x=>x.id===d.id),newDocs=items.map((it,n)=>({id:n===0?d.id:uid(),sourceId,sourceHash:d.sourceHash,name:d.name,path:d.path,group:d.group,groupDetection:d.groupDetection,date:it.date||d.date,benef:it.benef,value:it.value,sourceDate:inferDate(d.path||d.name),dateWarning:it.date&&inferDate(d.path||d.name)&&it.date!==inferDate(d.path||d.name)?'Data do pagamento diferente do nome do arquivo':'',obs:'OCR: '+it.line+(it.date&&inferDate(d.path||d.name)&&it.date!==inferDate(d.path||d.name)?' | ATENÇÃO: arquivo '+inferDate(d.path||d.name)+'; pagamento '+it.date:''),status:'PENDENTE',bankId:null,ocr:text,kind:d.kind,itemNo:n+1,ocrDone:true}));
  state.docs.splice(idx,1,...newDocs);save();return newDocs.length
 }
 $('ocrBtn').onclick=async()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um arquivo/pagamento.');$('ocrBtn').disabled=true;$('ocrStatus').textContent='Lendo arquivo...';try{const n=await processSourceOcr(d,false);const first=state.docs.find(x=>(x.sourceId||x.id)===(d.sourceId||d.id));if(first)state.selectedDoc=first.id;$('ocrStatus').textContent=n?n+' pagamento(s) identificado(s) neste arquivo.':'OCR concluído; revise manualmente.';render();await fillDoc()}catch(e){$('ocrStatus').textContent='Falha no OCR. Revise manualmente.';alert(String(e?.message||e))}finally{$('ocrBtn').disabled=false}};
