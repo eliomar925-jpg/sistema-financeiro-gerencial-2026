@@ -195,7 +195,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <table><thead><tr><th>Data</th><th>Grupo</th><th>Arquivo</th><th>Motivo</th></tr></thead><tbody id="pendingBody"></tbody></table>
   </div>
 
-  <div class="foot">MVP · Conciliação Diária de Pagamentos · competência operacional: 2026 · processamento local · versão 2026.11.16.7</div>
+  <div class="foot">MVP · Conciliação Diária de Pagamentos · competência operacional: 2026 · processamento local · versão 2026.11.16.8</div>
 </main>
 </div>
 
@@ -211,6 +211,13 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
   <div class="toolbar"><button class="smallBtn primary" id="processDocs">Adicionar à fila</button></div>
 </div></div>
 
+<div class="modal" id="reconciliationOptionsModal"><div class="modalBox" style="max-width:1100px">
+ <div class="modalHead"><div><h2>Escolher saída bancária e conciliar</h2><div id="reconciliationOptionDoc"></div></div><button class="close" data-close="reconciliationOptionsModal">×</button></div>
+ <div class="toolbar"><label>Data da saída no banco <select id="reconciliationDayWindow"><option value="0">Mesma data do espelho</option><option value="1">Até 1 dia antes/depois</option><option value="3">Até 3 dias antes/depois</option></select></label><button class="smallBtn" id="reconciliationManual">Ver espelho / editar</button></div>
+ <p class="muted">Escolha um débito ou uma combinação que feche o valor. Cada conta e data do extrato aparecem abaixo. A conciliação só acontece após sua confirmação.</p>
+ <div id="reconciliationOptionSummary" aria-live="polite"></div><div id="reconciliationOptionList" style="max-height:55vh;overflow:auto"></div>
+ <div class="toolbar" style="position:sticky;bottom:0;background:#fff;padding:12px 0"><button class="smallBtn primary" id="confirmReconciliationChoice" disabled>Conciliar opção selecionada</button><button class="smallBtn" data-close="reconciliationOptionsModal">Manter pendente</button></div>
+</div></div>
 <div class="modal" id="clearModal"><div class="modalBox">
   <div class="modalHead"><div><h2>Limpar mês selecionado</h2><div class="muted">A limpeza afeta somente o mês escolhido no filtro principal. Os outros meses serão preservados.</div></div><button class="close" data-close="clearModal">×</button></div>
   <div class="panel"><h2 id="clearMonthTitle">Mês selecionado</h2><p class="muted" id="clearMonthCount">Confira os registros antes de excluir.</p>
@@ -544,13 +551,66 @@ function identifyPaymentMatches(docs,banks,rules={},allDocs=docs){
  for(const group of uses.values())if(group.length>1)for(const row of group){row.status='CONFLITO';row.reason='Este débito também é candidato a outro pagamento. Confira os espelhos.';row.bankIds=[];}
  return rows;
 }
+function buildReconciliationChoices(doc,banks,allDocs,days=0,preferred=''){
+ if(!doc||!doc.date||!(doc.value>0)||doc.status==='CONCILIADO')return {choices:[],limited:false,total:0};
+ const target=Math.round(doc.value*100),reserved=new Set();for(const other of allDocs)if(other.id!==doc.id&&other.status==='CONCILIADO')for(const id of [other.bankId,...(other.bankIds||[])].filter(Boolean))reserved.add(id);
+ const unique=new Map();for(const bank of banks){if(unique.has(bank.id)||bank.value>=0||reserved.has(bank.id)||bank.matchedDoc&&bank.matchedDoc!==doc.id||dateDiff(bank.date,doc.date)>days||!Number.isFinite(dateDiff(bank.date,doc.date))||!crossAccountId(bank).replace(/[^0-9]/g,''))continue;const cents=Math.round(Math.abs(bank.value)*100);if(cents>0&&cents<=target)unique.set(bank.id,bank);}
+ const eligible=[...unique.values()],weight=b=>(identificationNameMatch(doc,b)?30:0)+(b.date===doc.date?15:0)+(preferred&&crossAccountId(b)===preferred?10:0),choices=[],keys=new Set();
+ const add=list=>{const key=list.map(b=>b.id).sort().join('|');if(keys.has(key))return;keys.add(key);const accounts=[...new Set(list.map(crossAccountId))],dates=[...new Set(list.map(b=>b.date))];choices.push({ids:list.map(b=>b.id),accounts,dates,total:list.reduce((a,b)=>a+Math.round(Math.abs(b.value)*100),0)/100,score:(list.length===1?100:60-list.length)+list.reduce((a,b)=>a+weight(b),0)/list.length,nameMatches:list.filter(b=>identificationNameMatch(doc,b)).length,outsideAccount:!!preferred&&accounts.some(a=>a!==preferred)});};
+ eligible.filter(b=>Math.round(Math.abs(b.value)*100)===target).forEach(b=>add([b]));
+ const smaller=eligible.filter(b=>Math.round(Math.abs(b.value)*100)<target).sort((a,b)=>weight(b)-weight(a)||Math.abs(b.value)-Math.abs(a.value)),pool=smaller.slice(0,60),values=pool.map(b=>Math.round(Math.abs(b.value)*100));
+ for(let i=0;i<pool.length;i++)for(let j=i+1;j<pool.length;j++){const sum=values[i]+values[j];if(sum===target)add([pool[i],pool[j]]);if(sum<target)for(let k=j+1;k<pool.length;k++)if(sum+values[k]===target)add([pool[i],pool[j],pool[k]]);}
+ if(isLotDoc(doc)){const lots=identifyLotByAccount(doc,eligible.filter(b=>!b.matchedDoc),preferred);if(lots.results.length===1&&!lots.incomplete){const list=eligible.filter(b=>lots.results[0].ids.includes(b.id));if(list.length>3)add(list);}}
+ choices.sort((a,b)=>b.score-a.score||a.ids.length-b.ids.length||a.ids.join().localeCompare(b.ids.join()));
+ return {choices:choices.slice(0,30),limited:smaller.length>60||choices.length>30,total:choices.length};
+}
+function validateReconciliationChoice(doc,ids,banks,allDocs,days=0){
+ if(!doc||doc.status==='CONCILIADO')throw new Error('O pagamento não está disponível para nova conciliação.');
+ if(!Array.isArray(ids)||!ids.length||new Set(ids).size!==ids.length)throw new Error('Selecione uma opção válida, sem repetir débitos.');
+ const selected=ids.map(id=>banks.find(b=>b.id===id));if(selected.some(b=>!b||b.value>=0))throw new Error('A opção contém lançamento ausente ou que não é saída bancária.');
+ const reserved=new Set();for(const other of allDocs)if(other.id!==doc.id&&other.status==='CONCILIADO')for(const id of [other.bankId,...(other.bankIds||[])].filter(Boolean))reserved.add(id);
+ if(selected.some(b=>reserved.has(b.id)||b.matchedDoc&&b.matchedDoc!==doc.id))throw new Error('Um dos débitos já foi conciliado com outro pagamento. Atualize as opções.');
+ if(selected.some(b=>!crossAccountId(b).replace(/[^0-9]/g,'')||!Number.isFinite(dateDiff(b.date,doc.date))||dateDiff(b.date,doc.date)>days))throw new Error('Conta ou data não corresponde ao intervalo selecionado. Atualize as opções.');
+ if(selected.reduce((a,b)=>a+Math.round(Math.abs(b.value)*100),0)!==Math.round(Number(doc.value)*100))throw new Error('A soma das saídas não fecha o valor atual do espelho.');
+ return selected;
+}
+let reconciliationReview={docId:null,choices:[],selected:null};
+function openReconciliationReview(docId){
+ reconciliationReview={docId,choices:[],selected:null};$('reconciliationDayWindow').value='0';renderReconciliationChoices();modal('reconciliationOptionsModal');
+}
+function renderReconciliationChoices(){
+ const d=state.docs.find(x=>x.id===reconciliationReview.docId);if(!d)return;
+ const days=Number($('reconciliationDayWindow').value),preferred=(state.accountRules||{})[d.group]||d.expectedAccount||'',result=buildReconciliationChoices(d,state.banks,state.docs,days,preferred);
+ reconciliationReview.choices=result.choices;reconciliationReview.selected=null;$('confirmReconciliationChoice').disabled=true;
+ $('reconciliationOptionDoc').innerHTML='<strong>'+identificationEscape(d.group||'SEM GRUPO')+' · '+identificationEscape(d.benef||d.name)+'</strong><p>Valor do espelho: <strong>'+money(d.value)+'</strong> · Data do espelho: <strong>'+identificationDate(d.date)+'</strong></p>';
+ $('reconciliationOptionSummary').innerHTML=d.status==='CONCILIADO'?'<p>Este pagamento já está conciliado. O vínculo foi preservado.</p>':!state.banks.length?'<p class="amber">Nenhum lançamento bancário carregado. Carregue os extratos para apresentar as opções.</p>':'<p><strong>'+result.choices.length+' opção(ões) que fecham '+money(d.value)+'</strong> · '+(days===0?'somente saídas na mesma data do espelho':'saídas até '+days+' dia(s) da data do espelho')+(result.limited?'. A busca foi limitada; use a conferência manual para ampliar.':'')+'</p>';
+ const esc=identificationEscape;
+ $('reconciliationOptionList').innerHTML=result.choices.map((choice,i)=>{
+  const selected=choice.ids.map(id=>state.banks.find(b=>b.id===id)),accountTotals=choice.accounts.map(account=>account+': '+money(selected.filter(b=>crossAccountId(b)===account).reduce((a,b)=>a+Math.abs(b.value),0))).join(' · ');
+  const warnings=[choice.outsideAccount?'Há saída fora da conta definida para o grupo.':'',choice.dates.some(date=>date!==d.date)?'A data do banco é diferente da data do espelho.':'',choice.nameMatches<selected.length?'Confira os favorecidos desta opção.':''].filter(Boolean).join(' ');
+  return '<div class="panel" style="margin:10px 0;padding:12px"><label style="display:flex;gap:10px;align-items:center;font-weight:800;font-size:15px"><input type="radio" name="reconciliationChoice" value="'+i+'">Opção '+(i+1)+' · '+selected.length+' saída(s) · '+choice.accounts.length+' conta(s) · '+money(choice.total)+'</label><p>'+esc(accountTotals)+'</p>'+(warnings?'<p class="amber">'+esc(warnings)+'</p>':'')+'<div style="overflow:auto"><table><thead><tr><th>Conta</th><th>Favorecido / histórico do banco</th><th>Data do espelho</th><th>Data da saída</th><th>Saída</th></tr></thead><tbody>'+selected.map(b=>'<tr><td>'+esc(crossAccountId(b))+'</td><td>'+esc(b.razao||b.lanc||'Não informado')+'</td><td>'+identificationDate(d.date)+'</td><td>'+identificationDate(b.date)+'</td><td>'+money(Math.abs(b.value))+'</td></tr>').join('')+'</tbody></table></div></div>';
+ }).join('')||(d.status==='CONCILIADO'?'':'<p class="muted">Nenhuma saída individual ou combinação de duas/três saídas fecha o valor neste intervalo. Confira se a conta foi importada ou amplie a data acima. Nenhum registro foi alterado.</p>');
+ $('reconciliationOptionList').querySelectorAll('input[name="reconciliationChoice"]').forEach(input=>input.onchange=()=>{reconciliationReview.selected=Number(input.value);$('confirmReconciliationChoice').disabled=false;});
+}
+function confirmReconciliationOption(){
+ const d=state.docs.find(x=>x.id===reconciliationReview.docId),choice=reconciliationReview.choices[reconciliationReview.selected];if(reconciliationReview.selected===null||!choice)return;
+ const days=Number($('reconciliationDayWindow').value);let selected;try{selected=validateReconciliationChoice(d,choice.ids,state.banks,state.docs,days)}catch(e){alert(e.message);renderReconciliationChoices();return;}
+ const note='Conciliar '+(d.benef||d.name)+' · '+money(d.value)+'?\nData do espelho: '+identificationDate(d.date)+'\n\n'+selected.map(b=>crossAccountId(b)+' · '+identificationDate(b.date)+' · '+money(Math.abs(b.value))+' · '+(b.razao||b.lanc||'')).join('\n')+'\n\nAs datas originais serão preservadas. Confirme favorecido e contas antes de concluir.';
+ if(!confirm(note))return;
+ try{selected=validateReconciliationChoice(d,choice.ids,state.banks,state.docs,days)}catch(e){alert(e.message);renderReconciliationChoices();return;}
+ const previous={status:d.status,bankId:d.bankId,bankIds:d.bankIds,obs:d.obs},oldLinks=selected.map(b=>({b,matchedDoc:b.matchedDoc}));
+ d.status='CONCILIADO';d.bankId=selected.length===1?selected[0].id:null;d.bankIds=selected.length>1?selected.map(b=>b.id):[];selected.forEach(b=>b.matchedDoc=d.id);
+ d.obs=[d.obs,'Conciliação confirmada pelo usuário · espelho '+d.date+' · '+selected.map(b=>crossAccountId(b)+' / '+b.date+' / '+money(Math.abs(b.value))).join(' + ')].filter(Boolean).join(' | ');
+ try{save()}catch(e){Object.assign(d,previous);oldLinks.forEach(x=>x.b.matchedDoc=x.matchedDoc);alert('Não foi possível salvar a conciliação. Nenhuma alteração foi mantida.');return;}
+ state.selectedDoc=d.id;state.selectedBank=selected.length===1?selected[0].id:null;state.selectedBanks=[];modal('reconciliationOptionsModal',false);render();runIdentification();
+}
 function runIdentification(){
  const docs=currentDocs(),rows=identifyPaymentMatches(docs,state.banks,state.accountRules||{},state.docs);
  const safe=rows.filter(r=>r.status==='IDENTIFICADO'||r.status==='JÁ CONCILIADO').length,found=rows.filter(r=>r.candidateIds.length).length,pending=rows.length-safe;
  const unread=docs.filter(d=>!d.value&&!d.itemNo).length;
  $('identificationSummary').innerHTML='<strong>'+rows.length+' pagamento(s) no espelho · '+found+' com candidato no banco · '+safe+' identificado(s) · '+pending+' para conferir</strong><p class="muted">Escopo: '+identificationEscape(selectedMonth())+($('filterGroup').value?' · '+identificationEscape($('filterGroup').value):' · todos os grupos')+'. Datas do espelho e do banco permanecem separadas. Identificado não significa conciliado.</p>'+(!state.banks.length?'<p class="red">Carregue os extratos bancários para realizar o cruzamento.</p>':'')+(unread?'<p class="amber">'+unread+' arquivo(s) ainda sem pagamento extraído. A identificação não inclui esses arquivos.</p>':'');
  const body=$('identificationBody');body.dataset.generated='true';body.innerHTML=rows.map((r,i)=>{const d=state.docs.find(x=>x.id===r.docId);return '<tr><td><strong>'+identificationEscape(d.group||'SEM GRUPO')+'</strong><br>'+identificationEscape(d.benef||d.name)+'</td><td>'+money(d.value)+'</td><td>'+identificationEscape(identificationDate(r.docDate)||'Sem data')+(d.dateWarning?'<br><span class="amber">'+identificationEscape(d.dateWarning)+'</span>':'')+'</td><td>'+identificationEscape(r.bankDates.map(identificationDate).join(' / ')||'—')+'</td><td>'+identificationEscape(r.accounts.join(' | ')||'—')+'</td><td><span class="pill '+(r.status==='IDENTIFICADO'||r.status==='JÁ CONCILIADO'?'ok':'warn')+'">'+identificationEscape(r.status)+'</span><br><span class="muted">'+identificationEscape(r.reason)+'</span></td><td><button class="smallBtn" data-identification="'+i+'">Conferir</button></td></tr>';}).join('')||'<tr><td colspan="7">Nenhum pagamento identificado nos espelhos para os filtros selecionados.</td></tr>';
- body.querySelectorAll('[data-identification]').forEach(button=>button.onclick=async()=>{const r=rows[Number(button.dataset.identification)];state.selectedDoc=r.docId;state.selectedBank=r.bankIds.length===1?r.bankIds[0]:null;state.selectedBanks=r.status==='CONFERIR LOTE'?r.bankIds:[];setSimpleView('payments');render();await fillDoc();document.querySelector('.workspace').scrollIntoView({behavior:'smooth',block:'start'});});
+ body.querySelectorAll('[data-identification]').forEach(button=>button.onclick=()=>openReconciliationReview(rows[Number(button.dataset.identification)].docId));
  setSimpleView('identification');
 }
 function renderIdentificationAccounts(){
@@ -886,7 +946,7 @@ $('batchOcrBtn').onclick=async()=>{const candidates=state.docs.filter(d=>d.date&
 
 $('saveDocEdit').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');const oldGroup=d.group;d.groupDetection='manual';d.group=$('editGroup').value||'SEM GRUPO';d.benef=$('editBenef').value.trim();d.value=$('editValue').value?Number($('editValue').value):null;d.date=$('editDate').value;d.obs=$('editObs').value.trim();if(d.sourceId&&oldGroup!==d.group){state.docs.filter(x=>x.sourceId===d.sourceId).forEach(x=>x.group=d.group)}save();render();fillDoc()};
 $('applyGroupSource').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');const g=$('editGroup').value,source=d.sourceId||d.id,items=state.docs.filter(x=>(x.sourceId||x.id)===source);if(!confirm('Aplicar '+g+' aos '+items.length+' item(ns) deste arquivo? Nenhum vínculo bancário será alterado.'))return;items.forEach(x=>x.group=g);save();render();fillDoc();};
-$('suggestBankBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!d.value)return alert('Selecione um espelho com valor preenchido.');if(isLotDoc(d))return alert('Folha/lote: utilize Sugerir composição e revise todos os débitos da conta antes de conciliar.');const opts=state.banks.filter(b=>b.value<0&&(!b.matchedDoc||b.matchedDoc===d.id)&&Math.abs(Math.abs(b.value)-Math.abs(d.value))<.01&&dateDiff(b.date,d.date)<=3).map(b=>({b,score:matchScore(d,b)})).sort((a,b)=>b.score-a.score);if(!opts.length)return alert('Nenhum débito de mesmo valor encontrado até 3 dias da data do espelho. Verifique mês, conta e valor.');const history=groupAccountHistory(d.group),counts=new Map(history.map(x=>[x.account,x.n]));opts.sort((a,b)=>(Number(counts.has(crossAccountId(b.b)))*5+b.score)-(Number(counts.has(crossAccountId(a.b)))*5+a.score));const top=opts[0];state.selectedBank=top.b.id;render();fillDoc();alert('Débito candidato selecionado: '+crossAccountId(top.b)+' · '+top.b.date+' · '+money(Math.abs(top.b.value))+'\n'+(top.b.razao||top.b.lanc)+'\n\nExistem '+opts.length+' candidato(s). '+(counts.has(crossAccountId(top.b))?'Conta com '+counts.get(crossAccountId(top.b))+' conciliação(ões) anterior(es) neste grupo. ':'')+'Confira a origem antes de conciliar.');};
+$('suggestBankBtn').textContent='Ver opções por conta';$('suggestBankBtn').onclick=()=>{if(!state.selectedDoc)return alert('Selecione um pagamento.');openReconciliationReview(state.selectedDoc);};
 $('suggestLotBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!isLotDoc(d))return alert('Selecione um lote.');const comp=suggestLotComposition(d);if(!comp.length){const cov=lotCoverage(d);if(cov.available+0.009<cov.target)return alert('Cobertura bancária insuficiente. Total do lote: '+money(cov.target)+'. Todos os débitos disponíveis em ±1 dia somam '+money(cov.available)+'. Déficit mínimo: '+money(cov.missing)+'. Isso não prova que os débitos disponíveis pertençam ao lote; pode faltar a conta/extrato de origem.');return alert('Há cobertura bancária suficiente, mas nenhuma combinação exata foi encontrada. Revise data, conta e lançamentos do lote.');}state.selectedBanks=comp.map(b=>b.id);render();fillDoc();alert('Composição exata encontrada com '+comp.length+' lançamento(s). Revise os favorecidos antes de conciliar.');};
 $('clearLotSelectionBtn').onclick=()=>{state.selectedBanks=[];render();fillDoc();};
 $('awaitExtractBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d||!isLotDoc(d))return alert('Selecione um lote.');const cov=lotCoverage(d);d.status='AGUARDANDO EXTRATO';d.obs='Aguardando extrato/conta de origem · cobertura máxima teórica '+cov.pct.toFixed(1).replace('.',',')+'% · déficit mínimo '+money(cov.missing);state.selectedBanks=[];save();render();fillDoc();alert('Lote separado como Aguardando extrato. Você pode continuar conciliando os demais pagamentos e retomar este lote depois.');};
@@ -922,7 +982,7 @@ $('reconcileBtn').onclick=()=>{
  save();render();
 };
 $('divergenceBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');d.status='DIVERGÊNCIA';d.obs=$('editObs').value.trim()||'Revisar valor/data/beneficiário';save();render()};
-$('undoBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return;const ids=d.bankIds||[d.bankId].filter(Boolean);ids.forEach(id=>{const b=state.banks.find(x=>x.id===id);if(b&&b.matchedDoc===d.id)b.matchedDoc=null});d.bankId=null;d.bankIds=[];d.status='PENDENTE';state.selectedBanks=[];save();render();fillDoc()};
+$('undoBtn').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return;const ids=[...new Set([d.bankId,...(d.bankIds||[])].filter(Boolean))];ids.forEach(id=>{const b=state.banks.find(x=>x.id===id);if(b&&b.matchedDoc===d.id)b.matchedDoc=null});d.bankId=null;d.bankIds=[];d.status='PENDENTE';state.selectedBanks=[];save();render();fillDoc()};
 function monthCleanupCounts(){
  const period=selectedMonth();
  return {period,docs:state.docs.filter(d=>String(d.date||'').startsWith(period)),banks:state.banks.filter(b=>String(b.date||'').startsWith(period))};
@@ -965,6 +1025,9 @@ $('reviewBtn').onclick=()=>{render();const rr=reviewRows(),fortes=rr.filter(x=>x
 $('exportDiagBtn').onclick=()=>{const bd=bidirectionalDiagnosis(),rows=[['TIPO','DATA','GRUPO/CONTA','DESCRICAO','VALOR']];for(const b of bd.bankNoDoc)rows.push(['BANCO SEM ESPELHO',b.date,b.agencia+' / '+b.conta,b.razao||b.lanc,Math.abs(b.value)]);for(const d of bd.docNoBank)rows.push(['ESPELHO SEM BANCO',d.date,d.group,d.name+(d.itemNo?' item '+d.itemNo:''),Math.abs(d.value||0)]);const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n'),blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='diagnostico-conciliacao-'+selectedMonth()+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
 document.querySelectorAll('[data-kpi]').forEach(card=>card.onclick=()=>{const k=card.dataset.kpi;if(k==='files'){ $('filterStatus').value=''; }else if(k==='identified'){ $('filterStatus').value=''; }else{ $('filterStatus').value=k; } render();document.querySelector('.workspace').scrollIntoView({behavior:'smooth',block:'start'});});
 $('filterMonth').onchange=()=>{$('filterDate').value='';state.selectedDoc=null;state.selectedBank=null;state.selectedBanks=[];render()};['filterDate','filterGroup','filterStatus','filterBankAccount','filterSearch','filterAmount'].forEach(id=>$(id).addEventListener('input',render));$('clearFilters').onclick=()=>{$('filterDate').value='';$('filterGroup').value='';$('filterStatus').value='';$('filterSearch').value='';$('filterAmount').value='';$('filterBankAccount').value='';render()};$('todayBtn').onclick=()=>{const d=new Date().toISOString().slice(0,10);if(d.startsWith('2026-')){$('filterMonth').value=d.slice(0,7);$('filterDate').value=d}else{$('filterDate').value=''}render()};
+$('reconciliationDayWindow').onchange=renderReconciliationChoices;
+$('confirmReconciliationChoice').onclick=confirmReconciliationOption;
+$('reconciliationManual').onclick=async()=>{state.selectedDoc=reconciliationReview.docId;state.selectedBank=null;state.selectedBanks=[];modal('reconciliationOptionsModal',false);setSimpleView('payments');render();await fillDoc();$('selectionMsg').closest('.panel').scrollIntoView({behavior:'smooth',block:'start'});};
 $('quickReview').onclick=()=>{setSimpleView('payments');document.querySelector('.workspace').scrollIntoView({behavior:'smooth',block:'start'});};
 $('identifyPayments').onclick=async()=>{
  const button=$('identifyPayments');button.disabled=true;try{
