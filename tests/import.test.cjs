@@ -2,21 +2,41 @@ const {readFileSync}=require('node:fs');const vm=require('node:vm');const assert
 const html=readFileSync('index.html','utf8');const script=html.split('<script>').pop().split('</script>')[0];
 new vm.Script(script);
 const fn=name=>{const start=script.indexOf('function '+name+'(');assert(start>=0,name);let pos=script.indexOf('{',start),depth=1,end=pos+1;for(;depth;end++){if(script[end]==='{')depth++;if(script[end]==='}')depth--;}return script.slice(start,end)};
-const state={docs:[],banks:[{id:'bank',matchedDoc:'pay'}]};const ctx={state,Map,console,save(){},allGroups:()=>['REPRESENTAÇÃO DE BANDAS','EVENTOS'],norm:s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase(),inferDate:()=> '2026-10-06',putMedia:async(id,blob)=>ctx.restored={id,blob},readImageText:async()=>ctx.ocrText};vm.createContext(ctx);
-for(const name of ['brNumber','parseOcr','detectSavedGroup','applyDetectedGroup','canonicalImportName','existingImport','recoverImportedSource','ocrMatchesPayments','matchScore','dateDiff','tokenOverlap'])vm.runInContext(fn(name).replace(/^function recover/,'async function recover'),ctx);
+const state={docs:[],banks:[{id:'bank',matchedDoc:'pay'}]};const ctx={state,Map,console,save(){},allGroups:()=>['REPRESENTAÇÃO DE BANDAS','EVENTOS'],norm:s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase(),inferDate:()=> '2026-10-06',inferGroup:()=> 'SEM GRUPO',putMedia:async(id,blob)=>ctx.restored={id,blob},readImageText:async()=>ctx.ocrText,getMedia:async(id)=>ctx.stored.get(id)||null,mediaFingerprint:async(blob)=>blob,stored:new Map(),uid:()=> 'new-'+(++ctx.sequence),sequence:0};vm.createContext(ctx);
+for(const name of ['brNumber','parseOcr','detectSavedGroup','applyDetectedGroup','canonicalImportName','recoverImportedSource','identifyImport','importDocumentFile','paymentIdentityMatches','ocrMatchesPayments','matchScore','dateDiff','tokenOverlap'])vm.runInContext(fn(name).replace(/^function (recoverImportedSource|identifyImport|importDocumentFile)\b/,'async function $1'),ctx);
 const text='REPRESENTAÇÃO | SALVADOR\nBANDAS\nFORNECEDOR DESCRICAO FORMA DATA VALOR\nTESTE EXEMPLO CACHÊ REPRESENTACAO - SETEMBRO.26 TRANSFERENCIA | 06/10/2026] R$ 25.000,00\nTOTAL R$ 25.000,00';
 const items=ctx.parseOcr(text,{date:'2026-10-06'});assert.equal(items.length,1);assert.equal(items[0].value,25000);assert.equal(items[0].benef,'TESTE EXEMPLO');assert.equal(items[0].date,'2026-10-06');assert.equal(ctx.detectSavedGroup(text),'REPRESENTAÇÃO DE BANDAS');assert.equal(ctx.detectSavedGroup(text.replace('REPRESENTAÇÃO','REPRESENTACGAO')),'REPRESENTAÇÃO DE BANDAS');
 (async()=>{
  const pay={id:'pay',sourceId:'source',name:'Pagamento 2026-10-06 at 09.52.14.jpeg',date:'2026-10-06',kind:'image',itemNo:1,value:25000,benef:'TESTE EXEMPLO',status:'CONCILIADO',bankId:'bank',group:'KART LOVE'};
  const other={id:'other',date:'2026-09-01',group:'LS',value:100};state.docs=[pay,other];ctx.ocrText=text;
- assert.equal(ctx.existingImport('Pagamento 2026-10-06 at 09.52.14(1).jpeg','2026-10-06'),pay);
+
  await ctx.recoverImportedSource(pay,'image','', 'batch');
  assert.equal(pay.group,'REPRESENTAÇÃO DE BANDAS');assert.equal(pay.status,'CONCILIADO');assert.equal(pay.bankId,'bank');assert.equal(pay.value,25000);assert.equal(pay.benef,'TESTE EXEMPLO');assert.equal(ctx.restored.id,'source');assert.equal(state.docs.length,2);assert.equal(other.group,'LS');assert.equal(state.banks[0].matchedDoc,'pay');
  const before=JSON.stringify(state);ctx.ocrText=text.replace('TESTE EXEMPLO','OUTRA PESSOA');ctx.restored=null;
  await assert.rejects(()=>ctx.recoverImportedSource(pay,'wrong-image','', 'batch'),/conteúdo/);assert.equal(ctx.restored,null);assert.equal(JSON.stringify(state),before);
  ctx.ocrText=text;pay.group='EVENTOS';pay.groupDetection='manual';await ctx.recoverImportedSource(pay,'image','', 'batch');assert.equal(pay.group,'EVENTOS');
- pay.date='2026-10-07';assert.equal(ctx.existingImport(pay.name,'2026-10-06'),pay);ctx.restored=null;await assert.rejects(()=>ctx.recoverImportedSource(pay,'image','', 'batch'),/conteúdo/);assert.equal(ctx.restored,null);
+ pay.date='2026-10-07';ctx.restored=null;await assert.rejects(()=>ctx.recoverImportedSource(pay,'image','', 'batch'),/conteúdo/);assert.equal(ctx.restored,null);
  assert.equal(ctx.matchScore({date:'2026-10-06',value:25000,benef:'TESTE EXEMPLO'},{date:'2026-10-06',value:-25000,razao:'TESTE EXEMPLO',lanc:'PIX'}),100);
  assert.equal(ctx.ocrMatchesPayments([{date:'2026-10-06',value:25000,benef:'TESTE EXEMPLO'}],[{date:'2026-10-06',value:25000,benef:'OUTRA PESSOA'}]),false);
- console.log('PASS: OCR acentuado, grupo incorreto corrigido após identidade verificada, colisão bloqueada sem substituir imagem, data divergente bloqueada, grupo manual preservado, outros meses e vínculos preservados, candidatos bancários, sintaxe');
+
+ // Exact regression: same filename/date, different group and payment.
+ const name='Pagamento 2026-10-06 at 09.52.14.jpeg';
+ const kart={id:'kart',sourceId:'kart',name,date:'2026-10-06',kind:'image',itemNo:1,value:5000,benef:'OUTRO ARTISTA',group:'KART LOVE',status:'CONCILIADO',bankId:'bank-kart'};
+ state.docs=[kart,other];ctx.ocrText=text;const kartBefore=JSON.stringify(kart),otherBefore=JSON.stringify(other);
+ let result=await ctx.importDocumentFile(name,'2026-10-06','representacao-image','image','','new-batch');
+ assert.equal(result.existing,false);assert.equal(state.docs.length,3);assert.equal(result.doc.group,'REPRESENTAÇÃO DE BANDAS');assert.equal(JSON.stringify(kart),kartBefore);assert.equal(JSON.stringify(other),otherBefore);assert.equal(result.doc.status,'PENDENTE');assert.equal(result.doc.bankId,null);
+ // Materialize the parsed payment as the UI does, then reimport.
+ Object.assign(result.doc,{itemNo:1,value:25000,benef:'TESTE EXEMPLO',ocrDone:true});
+ const rep=result.doc;result=await ctx.importDocumentFile(name,'2026-10-06','representacao-image','image','','retry');assert.equal(result.existing,true);assert.equal(result.doc,rep);assert.equal(state.docs.length,3);assert.equal(JSON.stringify(kart),kartBefore);
+ // Renaming must not duplicate an existing payment.
+ result=await ctx.importDocumentFile('Outro nome 2026-10-06.jpeg','2026-10-06','renamed-image','image','','renamed');assert.equal(result.existing,true);assert.equal(result.doc,rep);assert.equal(state.docs.length,3);
+ // Same-group pending evidence with different bytes must remain untouched.
+ const pending={id:'pending',name,date:'2026-10-06',kind:'image',value:null,itemNo:0,group:'REPRESENTAÇÃO DE BANDAS'};state.docs=[pending];ctx.stored.set('pending','different-image');
+ result=await ctx.identifyImport(name,'2026-10-06','new-image','','image');assert.equal(result.existing,null);assert.equal(ctx.stored.get('pending'),'different-image');
+ // Partial overlap or multiple existing copies must block, not add payments.
+ state.docs=[rep];ctx.ocrText=text.replace('TOTAL R$ 25.000,00','SEGUNDO EXEMPLO 06/10/2026 R$ 1.000,00');await assert.rejects(()=>ctx.identifyImport(name,'2026-10-06','partial','','image'),/Parte dos pagamentos/);
+ ctx.ocrText=text;state.docs=[rep,{...rep,id:'duplicate',sourceId:'duplicate'}];await assert.rejects(()=>ctx.identifyImport(name,'2026-10-06','duplicate','','image'),/mais de um cadastro/);
+ state.docs=[kart];ctx.ocrText='ilegível';await assert.rejects(()=>ctx.identifyImport(name,'2026-10-06','unreadable','','image'),/Não foi possível/);
+ console.log('PASS: same-name cross-group import; existing-source selection among collisions; renamed duplicate; partial overlap blocked; ambiguity blocked; original evidence, other months and bank links preserved; OCR and syntax');
+
 })().catch(e=>{console.error(e);process.exitCode=1});
