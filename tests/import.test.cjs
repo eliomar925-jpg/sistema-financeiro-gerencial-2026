@@ -3,10 +3,31 @@ const html=readFileSync('index.html','utf8');const script=html.split('<script>')
 new vm.Script(script);
 const fn=name=>{const start=script.indexOf('function '+name+'(');assert(start>=0,name);let pos=script.indexOf('){',start)+1,depth=1,end=pos+1;for(;depth;end++){if(script[end]==='{')depth++;if(script[end]==='}')depth--;}return script.slice(start,end)};
 const state={docs:[],banks:[{id:'bank',matchedDoc:'pay'}]};const ctx={state,Map,console,save(){},allGroups:()=>['REPRESENTAÇÃO DE BANDAS','EVENTOS','TIMBALADA','VINA CALMON','VINNY NOGUEIRA'],norm:s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase(),inferDate:()=> '2026-10-06',inferGroup:()=> 'SEM GRUPO',putMedia:async(id,blob)=>ctx.restored={id,blob},readImageText:async()=>ctx.ocrText,getMedia:async(id)=>ctx.stored.get(id)||null,mediaFingerprint:async(blob)=>blob,stored:new Map(),uid:()=> 'new-'+(++ctx.sequence),sequence:0};vm.createContext(ctx);
-for(const name of ['brNumber','parseOcr','detectSavedGroup','applyDetectedGroup','canonicalImportName','recoverImportedSource','identifyImport','importDocumentFile','paymentIdentityMatches','ocrMatchesPayments','readSourceOcr','matchScore','dateDiff','tokenOverlap','isLotDoc','crossAccountId','identificationNameMatch','identifyLotByAccount','identifyPaymentMatches','buildReconciliationChoices','validateReconciliationChoice'])vm.runInContext(fn(name).replace(/^function (recoverImportedSource|identifyImport|importDocumentFile|readSourceOcr)\b/,'async function $1'),ctx);
+for(const name of ['validPaymentDate','planSourceRepair','applySourceRepair','identificationDate','brNumber','parseOcr','detectSavedGroup','applyDetectedGroup','canonicalImportName','recoverImportedSource','identifyImport','importDocumentFile','paymentIdentityMatches','ocrMatchesPayments','readSourceOcr','matchScore','dateDiff','tokenOverlap','isLotDoc','crossAccountId','identificationNameMatch','identifyLotByAccount','identifyPaymentMatches','buildReconciliationChoices','validateReconciliationChoice'])vm.runInContext(fn(name).replace(/^function (recoverImportedSource|identifyImport|importDocumentFile|readSourceOcr)\b/,'async function $1'),ctx);
 const text='REPRESENTAÇÃO | SALVADOR\nBANDAS\nFORNECEDOR DESCRICAO FORMA DATA VALOR\nTESTE EXEMPLO CACHÊ REPRESENTACAO - SETEMBRO.26 TRANSFERENCIA | 06/10/2026] R$ 25.000,00\nTOTAL R$ 25.000,00';
 const items=ctx.parseOcr(text,{date:'2026-10-06'});assert.equal(items.length,1);assert.equal(items[0].value,25000);assert.equal(items[0].benef,'TESTE EXEMPLO');assert.equal(items[0].date,'2026-10-06');assert.equal(ctx.detectSavedGroup(text),'REPRESENTAÇÃO DE BANDAS');assert.equal(ctx.detectSavedGroup(text.replace('REPRESENTAÇÃO','REPRESENTACGAO')),'REPRESENTAÇÃO DE BANDAS');
 (async()=>{
+ // Legacy table: invalid date plus one missing line. Review is explicit and idempotent.
+ const repairText='TESTE\nPESSOA EXEMPLO\tALUGUEL\t20/10/2026\t3.500,00\nSERVICOS DIGITAIS\tASSESSORIA\t20/10/2026\t8.000,00\nABC\tPASSAGEM\t20/10/2026\t1.879,71\nOUTRA PESSOA\tSOCIAL\t20/10/2026\t450,00\nTOTAL R$ 13829,71';
+ const legacy={id:'legacy',sourceId:'legacy-source',name:'Pagamento 2026-10-20.jpeg',kind:'image',group:'TESTE',date:'2026-10-79',benef:'PESSOA EXEMPLO ALUGUEL',value:3500,itemNo:1,status:'PENDENTE',bankId:null};
+ const keep={id:'keep',sourceId:'another-source',date:'2026-09-20',value:100,status:'CONCILIADO',bankId:'keep-bank'};
+ state.docs=[legacy,{...legacy,id:'row2',date:'2026-10-20',benef:'ABC',value:1879.71,itemNo:2},{...legacy,id:'row3',date:'2026-10-20',benef:'OUTRA PESSOA!',value:450,itemNo:3},keep];
+ ctx.money=value=>String(value);ctx.confirm=()=>false;
+ const original=JSON.stringify(state);assert.equal(ctx.validPaymentDate(legacy.date),false);assert.equal(ctx.validPaymentDate('2026-02-30'),false);
+ assert.equal(ctx.parseOcr('PESSOA EXEMPLO 79/10/2026 R$ 3.500,00',legacy).length,0);
+ assert.equal(ctx.identifyPaymentMatches([legacy],[],{},state.docs)[0].status,'REVISAR DATA DO ESPELHO');
+ const repair=ctx.planSourceRepair(legacy,repairText);assert.equal(repair.updates.length,1);assert.equal(repair.additions.length,1);assert.equal(repair.total,13829.71);
+ assert.throws(()=>ctx.applySourceRepair(legacy,repairText),/cancelada/);assert.equal(JSON.stringify(state),original);
+ ctx.confirm=()=>true;assert.throws(()=>ctx.applySourceRepair(legacy,repairText,true),/precisa de revisão/);assert.equal(JSON.stringify(state),original);
+ legacy.bankId='keep-bank';assert.throws(()=>ctx.planSourceRepair(legacy,repairText),/vínculo bancário/);legacy.bankId=null;
+ const normalSave=ctx.save;ctx.save=()=>{throw Error('storage full')};assert.throws(()=>ctx.applySourceRepair(legacy,repairText),/storage full/);assert.equal(JSON.stringify(state),original);ctx.save=normalSave;
+ const restoredLegacy=state.docs.find(d=>d.id==='legacy');assert.equal(ctx.applySourceRepair(restoredLegacy,repairText),4);
+ assert.equal(restoredLegacy.date,'2026-10-20');assert.equal(restoredLegacy.ocrHistory[0].date,'2026-10-79');assert.equal(state.docs.length,5);
+ assert.equal(JSON.stringify(state.docs.find(d=>d.id==='keep')),JSON.stringify(keep));assert.equal(state.docs.find(d=>d.value===8000).status,'PENDENTE');assert.equal(state.docs.find(d=>d.value===8000).bankId,null);
+ const afterRepair=JSON.stringify(state);assert.equal(ctx.applySourceRepair(restoredLegacy,repairText),4);assert.equal(JSON.stringify(state),afterRepair);
+ // Existing valid dates never change through legacy date repair.
+ restoredLegacy.date='2026-10-19';assert.throws(()=>ctx.planSourceRepair(restoredLegacy,repairText),/data válida diferente/);
+
  const pay={id:'pay',sourceId:'source',name:'Pagamento 2026-10-06 at 09.52.14.jpeg',date:'2026-10-06',kind:'image',itemNo:1,value:25000,benef:'TESTE EXEMPLO',status:'CONCILIADO',bankId:'bank',group:'KART LOVE'};
  const other={id:'other',date:'2026-09-01',group:'LS',value:100};state.docs=[pay,other];ctx.ocrText=text;
 
@@ -68,7 +89,7 @@ const items=ctx.parseOcr(text,{date:'2026-10-06'});assert.equal(items.length,1);
  assert.equal(JSON.stringify({doc,bank}),unchanged);
 
  const elements={identificationSummary:{innerHTML:''},identificationBody:{innerHTML:'',dataset:{},querySelectorAll:()=>[]},filterGroup:{value:''},identificationAccountRules:{innerHTML:'',querySelectorAll:()=>[]}};
- const uiState={docs:[doc],banks:[bank],accountRules:{}},uiCtx={state:uiState,$:id=>{if(!elements[id])throw new Error('Unknown UI element '+id);return elements[id];},identifyPaymentMatches:ctx.identifyPaymentMatches,crossAccountId:ctx.crossAccountId,allGroups:()=>['TIMBALADA'],currentDocs:()=>[doc],selectedMonth:()=> '2026-10',setSimpleView:()=>{},money:v=>String(v)};vm.createContext(uiCtx);for(const name of ['identificationEscape','identificationDate','runIdentification','renderIdentificationAccounts'])vm.runInContext(fn(name),uiCtx);
+ const uiState={docs:[doc],banks:[bank],accountRules:{}},uiCtx={state:uiState,$:id=>{if(!elements[id])throw new Error('Unknown UI element '+id);return elements[id];},identifyPaymentMatches:ctx.identifyPaymentMatches,crossAccountId:ctx.crossAccountId,allGroups:()=>['TIMBALADA'],currentDocs:()=>[doc],selectedMonth:()=> '2026-10',setSimpleView:()=>{},money:v=>String(v)};vm.createContext(uiCtx);for(const name of ['validPaymentDate','identificationEscape','identificationDate','runIdentification','renderIdentificationAccounts'])vm.runInContext(fn(name),uiCtx);
  uiCtx.runIdentification();assert.match(elements.identificationBody.innerHTML,/06\/10\/2026/);assert.match(elements.identificationBody.innerHTML,/0001 \/ 1234/);assert.match(elements.identificationBody.innerHTML,/IDENTIFICADO/);assert.match(elements.identificationSummary.innerHTML,/1 identificado/);uiCtx.renderIdentificationAccounts();assert.match(elements.identificationAccountRules.innerHTML,/TIMBALADA/);assert.equal(JSON.stringify({doc,bank}),unchanged);assert.equal(uiCtx.identificationEscape('<img>'),'&lt;img&gt;');
 
  const splitDoc={...doc,id:'split',value:3000},splitBanks=[{...bank,id:'one',value:-1000},{...bank,id:'two',value:-2000,conta:'5678'},{...bank,id:'whole',value:-3000,conta:'9000'}];const splitBefore=JSON.stringify({splitDoc,splitBanks});
