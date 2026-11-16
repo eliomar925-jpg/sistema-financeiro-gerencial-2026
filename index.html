@@ -314,6 +314,7 @@ $('docFiles').onchange=()=>{$('docFileList').innerHTML=[...$('docFiles').files].
 $('bankFiles').onchange=()=>{$('bankFileList').innerHTML=[...$('bankFiles').files].map(f=>'<div class="fileLine">'+(f.name.toLowerCase().endsWith('.pdf')?'📄 PDF · ':'📊 Excel · ')+f.name+'</div>').join('')};
 
 $('processDocs').onclick=async()=>{
+ $('processDocs').disabled=true;try{
  const files=[...$('docFiles').files],uploadGroup=$('uploadGroup').value,batchId=uid();let accepted=0,duplicates=0,recovered=0,outside=0,unknown=0,existingSelected=null;
  for(const f of files){
   const ext=f.name.split('.').pop().toLowerCase();
@@ -344,8 +345,8 @@ $('processDocs').onclick=async()=>{
  if(existingSelected){const source=existingSelected.sourceId||existingSelected.id;const fresh=state.docs.find(d=>(d.sourceId||d.id)===source);if(fresh)state.selectedDoc=fresh.id;}
  render();if(existingSelected)await fillDoc();
  alert((existingSelected?'Arquivo localizado no cadastro existente: '+existingSelected.name+' · '+(existingSelected.date||'data não identificada')+' · '+(existingSelected.group||'SEM GRUPO')+'\n\n':'')+accepted+' espelho(s) adicionados; '+readCount+' imagem(ns) analisada(s) automaticamente.'+(recovered?' '+recovered+' imagem(ns) recuperada(s) de cadastros existentes.':'')+(duplicates?' '+duplicates+' arquivo(s) com mesmo nome e data já cadastrados. Não foram adicionados novamente.':'')+(outside?' '+outside+' arquivo(s) com data fora de 2026.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável guardados para revisão.':''));
+ }catch(e){save();render();alert('Importação interrompida: '+String(e?.message||e)+'. Registros existentes preservados. Verifique o armazenamento e tente novamente.')}finally{$('processDocs').disabled=false}
 };
-
 function parseBank(wb,file){
  const out=[];for(const sn of wb.SheetNames){const ws=wb.Sheets[sn],m=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});let hr=-1;for(let i=0;i<Math.min(m.length,20);i++){const r=(m[i]||[]).map(norm);if(r.includes('DATA')&&r.some(x=>x.includes('LANCAMENTO'))&&r.some(x=>x.includes('VALOR'))){hr=i;break}}if(hr<0)continue;
  let agencia='',conta='',empresa='';for(let i=0;i<hr;i++){if(norm(m[i]?.[0]).startsWith('AGENCIA'))agencia=String(m[i]?.[1]||'');if(norm(m[i]?.[0]).startsWith('CONTA'))conta=String(m[i]?.[1]||'');if(norm(m[i]?.[0]).startsWith('NOME'))empresa=String(m[i]?.[1]||'')}
@@ -655,10 +656,17 @@ function selectionText(){
  target.innerHTML='<div class="comparison"><div><small>ESPELHO · '+esc(d.group||'SEM GRUPO')+'</small><strong>'+money(d.value||0)+'</strong><small>'+esc(d.date)+' · '+esc(d.benef||d.name)+'</small></div><div><small>EXTRATO · '+esc(crossAccountId(b))+'</small><strong class="'+(b.value<0?'red':'green')+'">'+money(b.value)+'</strong><small>'+esc(b.date)+' · '+esc(b.razao||b.lanc)+'</small></div><div><small>DIFERENÇA</small><strong class="'+(valid?'green':'red')+'">'+money(diff)+'</strong><small>'+(valid?'Valor compatível · confirmar favorecido':'Não conciliar sem esclarecimento')+'</small></div></div>';
 }
 async function prepareOcrImage(blob){
- const bitmap=await createImageBitmap(blob),canvas=document.createElement('canvas');
- const scale=Math.max(2,Math.min(4,3000/bitmap.width));canvas.width=Math.round(bitmap.width*scale);canvas.height=Math.round(bitmap.height*scale);
- const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();
- return canvas;
+ const bitmap=await createImageBitmap(blob),clean=document.createElement('canvas');
+ const w=bitmap.width,h=bitmap.height;clean.width=w;clean.height=h;
+ const ctx=clean.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(bitmap,0,0);bitmap.close();
+ const pixels=ctx.getImageData(0,0,w,h),data=pixels.data,mask=new Uint8Array(w*h);
+ const dark=(x,y)=>{const i=(y*w+x)*4;return (data[i]+data[i+1]+data[i+2])/3<160};
+ // Remove long table rules from the OCR copy only; preserve original evidence.
+ for(let y=0;y<h;y++){let start=0;for(let x=0;x<=w;x++){if(x<w&&dark(x,y))continue;if(x-start>w*.5)for(let xx=start;xx<x;xx++)mask[y*w+xx]=1;start=x+1;}}
+ for(let x=0;x<w;x++){let start=0;for(let y=0;y<=h;y++){if(y<h&&dark(x,y))continue;if(y-start>h*.2)for(let yy=start;yy<y;yy++)mask[yy*w+x]=1;start=y+1;}}
+ for(let i=0;i<mask.length;i++)if(mask[i]){data[i*4]=data[i*4+1]=data[i*4+2]=255;}
+ ctx.putImageData(pixels,0,0);
+ const canvas=document.createElement('canvas'),scale=Math.max(2,Math.min(4,3000/w));canvas.width=Math.round(w*scale);canvas.height=Math.round(h*scale);canvas.getContext('2d').drawImage(clean,0,0,canvas.width,canvas.height);return canvas;
 }
 const sourceOcrJobs=new Map();
 async function processSourceOcr(d,quiet=false){
