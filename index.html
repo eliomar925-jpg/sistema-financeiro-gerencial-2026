@@ -189,12 +189,12 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 10px;border-bottom:1
     <table><thead><tr><th>Data</th><th>Grupo</th><th>Arquivo</th><th>Motivo</th></tr></thead><tbody id="pendingBody"></tbody></table>
   </div>
 
-  <div class="foot">MVP · Conciliação Diária de Pagamentos · competência operacional: 2026 · processamento local</div>
+  <div class="foot">MVP · Conciliação Diária de Pagamentos · competência operacional: 2026 · processamento local · versão 2026.11.16.3</div>
 </main>
 </div>
 
 <div class="modal" id="docsModal"><div class="modalBox">
-  <div class="modalHead"><div><h2>Adicionar espelhos do WhatsApp</h2><div class="muted">Você pode adicionar novos arquivos a qualquer momento. Os já carregados são preservados e duplicados exatos são ignorados. Uma imagem pode conter vários pagamentos.</div></div><button class="close" data-close="docsModal">×</button></div>
+  <div class="modalHead"><div><h2>Adicionar espelhos do WhatsApp</h2><div class="muted">Você pode adicionar novos arquivos a qualquer momento. Os já carregados são preservados e arquivos com os mesmos pagamentos são recuperados sem duplicar. Nomes iguais podem pertencer a grupos diferentes. Uma imagem pode conter vários pagamentos.</div></div><button class="close" data-close="docsModal">×</button></div>
   <div class="detailGrid" style="margin:12px 0">
   <div><label>Grupo destes arquivos (opcional)
     <select id="uploadGroup"><option value="">Detectar automaticamente</option><option>ESCRITORIO</option><option>EVENTOS</option><option>LS</option><option>DIZZON</option><option>KART LOVE</option><option>VINA CALMON</option><option>TIMBALADA</option><option>REPRESENTAÇÃO DE BANDAS</option></select>
@@ -280,9 +280,49 @@ function applyDetectedGroup(source,ocr){
 function canonicalImportName(name){
  return norm(String(name||'').replace(/\\/g,'/').split('/').pop().replace(/\s*\(\d+\)(?=\.[^.]+$)/,'')).replace(/\s+/g,' ');
 }
-function existingImport(name,date){
- const key=canonicalImportName(name);
- return state.docs.find(d=>(d.date===date||inferDate(d.path||d.name)===date)&&canonicalImportName(d.path||d.name)===key);
+async function mediaFingerprint(blob){
+ const digest=await crypto.subtle.digest('SHA-256',await blob.arrayBuffer());
+ return [...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+function paymentIdentityMatches(a,b){return Math.abs(a.value-b.value)<.01&&a.date===b.date&&tokenOverlap(a.benef,b.benef)>=2;}
+async function identifyImport(name,date,blob,requestedGroup,kind){
+ const hash=await mediaFingerprint(blob),text=kind==='image'?await readImageText(blob,true):null;
+ const group=requestedGroup||detectSavedGroup([name,text||''].join(' '))||inferGroup(name),items=text===null?[]:parseOcr(text,{date});
+ const sources=new Map();for(const d of state.docs){const key=d.sourceId||d.id;if(!sources.has(key))sources.set(key,[]);sources.get(key).push(d);}
+ const matches=[],placeholders=[];let collision=false;
+ for(const [source,related] of sources){
+  const first=related[0],sameName=canonicalImportName(first.path||first.name)===canonicalImportName(name)&&(first.date===date||inferDate(first.path||first.name)===date);
+  if(sameName)collision=true;
+  const payments=related.filter(d=>d.itemNo||d.value);
+  if(payments.length){
+   if(items.length&&ocrMatchesPayments(items,payments)){matches.push(first);continue;}
+   if(items.some(it=>payments.some(d=>paymentIdentityMatches(it,d))))throw new Error('Parte dos pagamentos desta imagem já está cadastrada. A importação foi interrompida para evitar duplicidade; revise os itens existentes');
+   // Same filename or even a legacy image attached to the wrong record is not identity.
+   if(kind==='pdf'&&related.some(d=>d.sourceHash===hash))matches.push(first);
+   continue;
+  }
+  let sameContent=related.some(d=>d.sourceHash===hash),hasDifferentImage=false;
+  if(!sameContent&&sameName){const old=await getMedia(source);if(old){sameContent=await mediaFingerprint(old)===hash;hasDifferentImage=!sameContent;}}
+  const compatible=!first.group||first.group==='SEM GRUPO'||first.group===group;
+  if(sameContent||(sameName&&compatible&&!hasDifferentImage))placeholders.push(first);
+ }
+ if(matches.length>1)throw new Error('O mesmo pagamento já aparece em mais de um cadastro. Revise os registros existentes antes de importar');
+ if(matches.length)return {existing:matches[0],hash,text,group};
+ if(placeholders.length>1)throw new Error('Há mais de um arquivo pendente compatível. Revise os arquivos antes de importar');
+ if(placeholders.length)return {existing:placeholders[0],hash,text,group};
+ if(collision&&(!items.length||group==='SEM GRUPO'))throw new Error('Há outro arquivo com este nome. Não foi possível identificar com segurança os pagamentos e o grupo da nova imagem; revise a leitura e selecione o grupo correto');
+ return {existing:null,hash,text,group};
+}
+async function importDocumentFile(name,date,blob,kind,uploadGroup,batchId){
+ const found=await identifyImport(name,date,blob,uploadGroup,kind);
+ if(found.existing){
+  const doc=await recoverImportedSource(found.existing,blob,uploadGroup,batchId,found.text);
+  state.docs.filter(d=>(d.sourceId||d.id)===(doc.sourceId||doc.id)).forEach(d=>d.sourceHash=found.hash);
+  return {doc,existing:true};
+ }
+ const id=uid();await putMedia(id,blob);
+ const doc={id,sourceId:id,sourceHash:found.hash,name:name.replace(/\\/g,'/').split('/').pop(),path:name,group:found.group,groupDetection:uploadGroup?'manual':null,importBatch:batchId,date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:found.text||'',kind,itemNo:0,ocrDone:false};
+ state.docs.push(doc);return {doc,existing:false};
 }
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 let mediaDbPromise=null;
@@ -298,19 +338,19 @@ function ocrMatchesPayments(items,payments){
  for(const d of payments){const i=remaining.findIndex(it=>Math.abs(it.value-d.value)<.01&&it.date===d.date&&tokenOverlap(it.benef,d.benef)>=2);if(i<0)return false;remaining.splice(i,1);}
  return true;
 }
-async function recoverImportedSource(existing,blob,group,batchId){
+async function recoverImportedSource(existing,blob,group,batchId,verifiedText){
  const source=existing.sourceId||existing.id,related=state.docs.filter(d=>(d.sourceId||d.id)===source),payments=related.filter(d=>d.itemNo||d.value);
  let text=null;
  // A filename is only a candidate: verify the image against existing payments first.
  if(payments.length&&existing.kind!=='pdf'){
-  text=await readImageText(blob,true);
+  text=verifiedText??await readImageText(blob,true);
   if(!ocrMatchesPayments(parseOcr(text,existing),payments))throw new Error('Mesmo nome e data, mas o conteúdo da imagem não corresponde aos pagamentos cadastrados em '+existing.group+'. Nenhuma imagem ou pagamento deste cadastro foi substituído');
  }
  await putMedia(source,blob);
  for(const d of related){
   if(group){d.group=group;d.groupDetection='manual';}
   if(text!==null){d.ocr=text;d.ocrDone=true;d.ocrIssue='';}
-  if(!d.itemNo&&!d.value){d.ocrDone=false;d.ocrIssue='Reimportado para nova leitura';d.importBatch=batchId;}
+  if(!d.itemNo&&!d.value){d.ocr=verifiedText||'';d.ocrDone=false;d.ocrIssue='Reimportado para nova leitura';d.importBatch=batchId;}
  }
  if(text!==null)applyDetectedGroup(existing,text);
  return existing;
@@ -327,7 +367,7 @@ $('docFiles').onchange=()=>{$('docFileList').innerHTML=[...$('docFiles').files].
 $('bankFiles').onchange=()=>{$('bankFileList').innerHTML=[...$('bankFiles').files].map(f=>'<div class="fileLine">'+(f.name.toLowerCase().endsWith('.pdf')?'📄 PDF · ':'📊 Excel · ')+f.name+'</div>').join('')};
 
 $('processDocs').onclick=async()=>{
- $('processDocs').disabled=true;try{
+ $('processDocs').disabled=true;$('processDocs').textContent='Lendo e conferindo arquivos…';try{
  const files=[...$('docFiles').files],uploadGroup=$('uploadGroup').value,batchId=uid();let accepted=0,duplicates=0,recovered=0,verified=0,outside=0,unknown=0,existingSelected=null;
  for(const f of files){
   const ext=f.name.split('.').pop().toLowerCase();
@@ -336,17 +376,13 @@ $('processDocs').onclick=async()=>{
    for(const [name,z] of Object.entries(zip.files)){
     if(z.dir)continue;const e=name.split('.').pop().toLowerCase();if(!['jpg','jpeg','png','webp','pdf'].includes(e))continue;
     const date=inferDate(name);if(date&&!date.startsWith('2026-')){outside++;continue}if(!date){unknown++;}
-    const existing=existingImport(name,date);
-    if(existing){existingSelected=await recoverImportedSource(existing,await z.async('blob'),uploadGroup,batchId);recovered++;if(existing.itemNo||existing.value)verified++;duplicates++;continue}
-    const id=uid(),blob=await z.async('blob');await putMedia(id,blob);
-    state.docs.push({id,sourceId:id,name:name.split('/').pop(),path:name,group:uploadGroup||detectSavedGroup(name)||inferGroup(name),groupDetection:uploadGroup?'manual':null,importBatch:batchId,date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:e==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
+    const result=await importDocumentFile(name,date,await z.async('blob'),e==='pdf'?'pdf':'image',uploadGroup,batchId);existingSelected=result.doc;
+    if(result.existing){recovered++;if(result.doc.itemNo||result.doc.value)verified++;duplicates++;}else accepted++;
    }
   }else{
    const date=inferDate(f.name);if(date&&!date.startsWith('2026-')){outside++;continue}if(!date){unknown++;}
-   const existing=existingImport(f.name,date);
-   if(existing){existingSelected=await recoverImportedSource(existing,f,uploadGroup,batchId);recovered++;if(existing.itemNo||existing.value)verified++;duplicates++;continue}
-   const id=uid();await putMedia(id,f);
-   state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:uploadGroup||detectSavedGroup(f.name)||inferGroup(f.name),groupDetection:uploadGroup?'manual':null,importBatch:batchId,date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
+   const result=await importDocumentFile(f.name,date,f,ext==='pdf'?'pdf':'image',uploadGroup,batchId);existingSelected=result.doc;
+   if(result.existing){recovered++;if(result.doc.itemNo||result.doc.value)verified++;duplicates++;}else accepted++;
   }
  }
  save();$('filterDate').value='';$('filterGroup').value='';$('filterStatus').value='';$('filterSearch').value='';$('filterAmount').value='';$('filterBankAccount').value='';
@@ -357,8 +393,8 @@ $('processDocs').onclick=async()=>{
  save();
  if(existingSelected){const source=existingSelected.sourceId||existingSelected.id;const fresh=state.docs.find(d=>(d.sourceId||d.id)===source);if(fresh)state.selectedDoc=fresh.id;}
  render();if(existingSelected)await fillDoc();
- alert((existingSelected?'Arquivo localizado no cadastro existente: '+existingSelected.name+' · '+(existingSelected.date||'data não identificada')+' · '+(existingSelected.group||'SEM GRUPO')+'\n\n':'')+accepted+' espelho(s) adicionados; '+(readCount+verified)+' imagem(ns) analisada(s) automaticamente.'+(recovered?' '+recovered+' imagem(ns) recuperada(s) de cadastros existentes.':'')+(duplicates?' '+duplicates+' arquivo(s) com mesmo nome e data já cadastrados. Não foram adicionados novamente.':'')+(outside?' '+outside+' arquivo(s) com data fora de 2026.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável guardados para revisão.':''));
- }catch(e){save();render();alert('Importação interrompida: '+String(e?.message||e)+'. Registros existentes preservados. Verifique o armazenamento e tente novamente.')}finally{$('processDocs').disabled=false}
+ alert((existingSelected?'Espelho selecionado: '+existingSelected.name+' · '+(existingSelected.date||'data não identificada')+' · '+(existingSelected.group||'SEM GRUPO')+'\n\n':'')+accepted+' espelho(s) adicionados; '+(readCount+verified)+' imagem(ns) analisada(s) automaticamente.'+(recovered?' '+recovered+' imagem(ns) recuperada(s) de cadastros existentes.':'')+(duplicates?' '+duplicates+' arquivo(s) com conteúdo já cadastrado. Não foram adicionados novamente.':'')+(outside?' '+outside+' arquivo(s) com data fora de 2026.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável guardados para revisão.':''));
+ }catch(e){save();render();alert('Importação interrompida: '+String(e?.message||e)+'. Registros existentes preservados.')}finally{$('processDocs').disabled=false;$('processDocs').textContent='Adicionar à fila'}
 };
 function parseBank(wb,file){
  const out=[];for(const sn of wb.SheetNames){const ws=wb.Sheets[sn],m=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});let hr=-1;for(let i=0;i<Math.min(m.length,20);i++){const r=(m[i]||[]).map(norm);if(r.includes('DATA')&&r.some(x=>x.includes('LANCAMENTO'))&&r.some(x=>x.includes('VALOR'))){hr=i;break}}if(hr<0)continue;
@@ -698,7 +734,7 @@ async function processSourceOcr(d,quiet=false){
 async function readSourceOcr(d,quiet=false){
  const sourceId=d.sourceId||d.id,blob=await getMedia(sourceId);if(!blob){d.ocrIssue='Imagem indisponível neste navegador: importe novamente o arquivo original para recuperar';save();if(!quiet)alert(d.ocrIssue);return 0}if(d.kind==='pdf'){if(!quiet)alert('PDF permanece como evidência nesta versão.');return 0}
  const siblings=state.docs.filter(x=>(x.sourceId||x.id)===sourceId);
- const text=await readImageText(blob,quiet);
+ const text=!d.ocrDone&&d.ocr?d.ocr:await readImageText(blob,quiet);
  const items=parseOcr(text,d);
  if(siblings.some(x=>x.itemNo||x.value)){
   const payments=siblings.filter(x=>x.itemNo||x.value);if(!ocrMatchesPayments(items,payments))throw new Error('OCR diferente dos pagamentos existentes. Revise o cadastro; nenhum pagamento foi alterado.');
