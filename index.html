@@ -749,7 +749,7 @@ async function readSourceOcr(d,quiet=false){
  const sourceId=d.sourceId||d.id,blob=await getMedia(sourceId);if(!blob){d.ocrIssue='Imagem indisponível neste navegador: importe novamente o arquivo original para recuperar';save();if(!quiet)alert(d.ocrIssue);return 0}if(d.kind==='pdf'){if(!quiet)alert('PDF permanece como evidência nesta versão.');return 0}
  const siblings=state.docs.filter(x=>(x.sourceId||x.id)===sourceId);
  if(d.requiresReview&&(!d.group||d.group==='SEM GRUPO')){d.ocrIssue='Selecione o grupo deste arquivo, salve e execute Ler imagem (OCR). Nenhum pagamento foi gerado.';save();return 0;}
- const text=!d.ocrDone&&d.ocr?d.ocr:await readImageText(blob,quiet);
+ const text=!d.requiresReview&&!d.ocrDone&&d.ocr?d.ocr:await readImageText(blob,quiet);
  const items=parseOcr(text,d);
  if(siblings.some(x=>x.itemNo||x.value)){
   const payments=siblings.filter(x=>x.itemNo||x.value);if(!ocrMatchesPayments(items,payments))throw new Error('OCR diferente dos pagamentos existentes. Revise o cadastro; nenhum pagamento foi alterado.');
