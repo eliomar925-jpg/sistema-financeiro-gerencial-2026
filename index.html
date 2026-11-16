@@ -292,14 +292,27 @@ async function putMedia(id,blob){
  await new Promise((resolve,reject)=>{const tx=db.transaction('media','readwrite');tx.objectStore('media').put(blob,id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('Gravação da imagem cancelada'));});
  media.set(id,blob);
 }
+function ocrMatchesPayments(items,payments){
+ if(items.length!==payments.length)return false;
+ const remaining=[...items];
+ for(const d of payments){const i=remaining.findIndex(it=>Math.abs(it.value-d.value)<.01&&it.date===d.date&&tokenOverlap(it.benef,d.benef)>=2);if(i<0)return false;remaining.splice(i,1);}
+ return true;
+}
 async function recoverImportedSource(existing,blob,group,batchId){
- const source=existing.sourceId||existing.id,related=state.docs.filter(d=>(d.sourceId||d.id)===source);
- // Restore evidence even when the financial item already exists. Never recreate it.
+ const source=existing.sourceId||existing.id,related=state.docs.filter(d=>(d.sourceId||d.id)===source),payments=related.filter(d=>d.itemNo||d.value);
+ let text=null;
+ // A filename is only a candidate: verify the image against existing payments first.
+ if(payments.length&&existing.kind!=='pdf'){
+  text=await readImageText(blob,true);
+  if(!ocrMatchesPayments(parseOcr(text,existing),payments))throw new Error('Mesmo nome e data, mas o conteúdo da imagem não corresponde aos pagamentos cadastrados em '+existing.group+'. Nenhuma imagem ou pagamento deste cadastro foi substituído');
+ }
  await putMedia(source,blob);
  for(const d of related){
   if(group){d.group=group;d.groupDetection='manual';}
+  if(text!==null){d.ocr=text;d.ocrDone=true;d.ocrIssue='';}
   if(!d.itemNo&&!d.value){d.ocrDone=false;d.ocrIssue='Reimportado para nova leitura';d.importBatch=batchId;}
  }
+ if(text!==null)applyDetectedGroup(existing,text);
  return existing;
 }
 async function getMedia(id){if(media.has(id))return media.get(id);try{const db=await mediaDb();const blob=await new Promise((resolve,reject)=>{const tx=db.transaction('media','readonly'),q=tx.objectStore('media').get(id);q.onsuccess=()=>resolve(q.result||null);q.onerror=()=>reject(q.error)});if(blob)media.set(id,blob);return blob}catch(e){return null}}
@@ -315,7 +328,7 @@ $('bankFiles').onchange=()=>{$('bankFileList').innerHTML=[...$('bankFiles').file
 
 $('processDocs').onclick=async()=>{
  $('processDocs').disabled=true;try{
- const files=[...$('docFiles').files],uploadGroup=$('uploadGroup').value,batchId=uid();let accepted=0,duplicates=0,recovered=0,outside=0,unknown=0,existingSelected=null;
+ const files=[...$('docFiles').files],uploadGroup=$('uploadGroup').value,batchId=uid();let accepted=0,duplicates=0,recovered=0,verified=0,outside=0,unknown=0,existingSelected=null;
  for(const f of files){
   const ext=f.name.split('.').pop().toLowerCase();
   if(ext==='zip'){
@@ -324,14 +337,14 @@ $('processDocs').onclick=async()=>{
     if(z.dir)continue;const e=name.split('.').pop().toLowerCase();if(!['jpg','jpeg','png','webp','pdf'].includes(e))continue;
     const date=inferDate(name);if(date&&!date.startsWith('2026-')){outside++;continue}if(!date){unknown++;}
     const existing=existingImport(name,date);
-    if(existing){existingSelected=await recoverImportedSource(existing,await z.async('blob'),uploadGroup,batchId);recovered++;duplicates++;continue}
+    if(existing){existingSelected=await recoverImportedSource(existing,await z.async('blob'),uploadGroup,batchId);recovered++;if(existing.itemNo||existing.value)verified++;duplicates++;continue}
     const id=uid(),blob=await z.async('blob');await putMedia(id,blob);
     state.docs.push({id,sourceId:id,name:name.split('/').pop(),path:name,group:uploadGroup||detectSavedGroup(name)||inferGroup(name),groupDetection:uploadGroup?'manual':null,importBatch:batchId,date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:e==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
    }
   }else{
    const date=inferDate(f.name);if(date&&!date.startsWith('2026-')){outside++;continue}if(!date){unknown++;}
    const existing=existingImport(f.name,date);
-   if(existing){existingSelected=await recoverImportedSource(existing,f,uploadGroup,batchId);recovered++;duplicates++;continue}
+   if(existing){existingSelected=await recoverImportedSource(existing,f,uploadGroup,batchId);recovered++;if(existing.itemNo||existing.value)verified++;duplicates++;continue}
    const id=uid();await putMedia(id,f);
    state.docs.push({id,sourceId:id,name:f.name,path:f.name,group:uploadGroup||detectSavedGroup(f.name)||inferGroup(f.name),groupDetection:uploadGroup?'manual':null,importBatch:batchId,date,benef:'',value:null,obs:'',status:'PENDENTE',bankId:null,ocr:'',kind:ext==='pdf'?'pdf':'image',itemNo:0,ocrDone:false});accepted++;
   }
@@ -344,7 +357,7 @@ $('processDocs').onclick=async()=>{
  save();
  if(existingSelected){const source=existingSelected.sourceId||existingSelected.id;const fresh=state.docs.find(d=>(d.sourceId||d.id)===source);if(fresh)state.selectedDoc=fresh.id;}
  render();if(existingSelected)await fillDoc();
- alert((existingSelected?'Arquivo localizado no cadastro existente: '+existingSelected.name+' · '+(existingSelected.date||'data não identificada')+' · '+(existingSelected.group||'SEM GRUPO')+'\n\n':'')+accepted+' espelho(s) adicionados; '+readCount+' imagem(ns) analisada(s) automaticamente.'+(recovered?' '+recovered+' imagem(ns) recuperada(s) de cadastros existentes.':'')+(duplicates?' '+duplicates+' arquivo(s) com mesmo nome e data já cadastrados. Não foram adicionados novamente.':'')+(outside?' '+outside+' arquivo(s) com data fora de 2026.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável guardados para revisão.':''));
+ alert((existingSelected?'Arquivo localizado no cadastro existente: '+existingSelected.name+' · '+(existingSelected.date||'data não identificada')+' · '+(existingSelected.group||'SEM GRUPO')+'\n\n':'')+accepted+' espelho(s) adicionados; '+(readCount+verified)+' imagem(ns) analisada(s) automaticamente.'+(recovered?' '+recovered+' imagem(ns) recuperada(s) de cadastros existentes.':'')+(duplicates?' '+duplicates+' arquivo(s) com mesmo nome e data já cadastrados. Não foram adicionados novamente.':'')+(outside?' '+outside+' arquivo(s) com data fora de 2026.':'')+(unknown?' '+unknown+' arquivo(s) sem data identificável guardados para revisão.':''));
  }catch(e){save();render();alert('Importação interrompida: '+String(e?.message||e)+'. Registros existentes preservados. Verifique o armazenamento e tente novamente.')}finally{$('processDocs').disabled=false}
 };
 function parseBank(wb,file){
@@ -668,6 +681,15 @@ async function prepareOcrImage(blob){
  ctx.putImageData(pixels,0,0);
  const canvas=document.createElement('canvas'),scale=Math.max(2,Math.min(4,3000/w));canvas.width=Math.round(w*scale);canvas.height=Math.round(h*scale);canvas.getContext('2d').drawImage(clean,0,0,canvas.width,canvas.height);return canvas;
 }
+async function readImageText(blob,quiet=false){
+ let r,worker;try{
+ worker=await Tesseract.createWorker('por',1,{logger:m=>{if(!quiet&&m.status==='recognizing text')$('ocrStatus').textContent='OCR '+Math.round((m.progress||0)*100)+'%'}});
+ await worker.setParameters({tessedit_pageseg_mode:'6'});
+ r=await worker.recognize(await prepareOcrImage(blob));
+ }catch(e){throw e}finally{if(worker)await worker.terminate()}
+
+ return r.data.text||'';
+}
 const sourceOcrJobs=new Map();
 async function processSourceOcr(d,quiet=false){
  const key=d.sourceId||d.id;if(sourceOcrJobs.has(key))return sourceOcrJobs.get(key);
@@ -675,18 +697,18 @@ async function processSourceOcr(d,quiet=false){
 }
 async function readSourceOcr(d,quiet=false){
  const sourceId=d.sourceId||d.id,blob=await getMedia(sourceId);if(!blob){d.ocrIssue='Imagem indisponível neste navegador: importe novamente o arquivo original para recuperar';save();if(!quiet)alert(d.ocrIssue);return 0}if(d.kind==='pdf'){if(!quiet)alert('PDF permanece como evidência nesta versão.');return 0}
- const siblings=state.docs.filter(x=>(x.sourceId||x.id)===sourceId);if(siblings.some(x=>x.itemNo||x.value)){return siblings.filter(x=>x.itemNo).length}
- let r,worker;try{
- worker=await Tesseract.createWorker('por',1,{logger:m=>{if(!quiet&&m.status==='recognizing text')$('ocrStatus').textContent='OCR '+Math.round((m.progress||0)*100)+'%'}});
- await worker.setParameters({tessedit_pageseg_mode:'6'});
- r=await worker.recognize(await prepareOcrImage(blob));
- }catch(e){d.ocrIssue='Falha OCR: '+String(e?.message||e);save();throw e}finally{if(worker)await worker.terminate()}
-
- const text=r.data.text||'';applyDetectedGroup(d,text);const items=parseOcr(text,d);if(!items.length){d.ocr=text;d.ocrDone=true;d.ocrIssue=text.trim()?'Texto lido, mas nenhum pagamento identificado':'Nenhum texto reconhecido na imagem';save();return 0}
+ const siblings=state.docs.filter(x=>(x.sourceId||x.id)===sourceId);
+ const text=await readImageText(blob,quiet);
+ const items=parseOcr(text,d);
+ if(siblings.some(x=>x.itemNo||x.value)){
+  const payments=siblings.filter(x=>x.itemNo||x.value);if(!ocrMatchesPayments(items,payments))throw new Error('OCR diferente dos pagamentos existentes. Revise o cadastro; nenhum pagamento foi alterado.');
+  applyDetectedGroup(d,text);siblings.forEach(x=>{x.ocr=text;x.ocrDone=true;x.ocrIssue='';});save();return payments.length;
+ }
+ applyDetectedGroup(d,text);if(!items.length){d.ocr=text;d.ocrDone=true;d.ocrIssue=text.trim()?'Texto lido, mas nenhum pagamento identificado':'Nenhum texto reconhecido na imagem';save();return 0}
  const idx=state.docs.findIndex(x=>x.id===d.id),newDocs=items.map((it,n)=>({id:n===0?d.id:uid(),sourceId,name:d.name,path:d.path,group:d.group,groupDetection:d.groupDetection,date:it.date||d.date,benef:it.benef,value:it.value,obs:'OCR: '+it.line,status:'PENDENTE',bankId:null,ocr:text,kind:d.kind,itemNo:n+1,ocrDone:true}));
  state.docs.splice(idx,1,...newDocs);save();return newDocs.length
 }
-$('ocrBtn').onclick=async()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um arquivo/pagamento.');$('ocrBtn').disabled=true;$('ocrStatus').textContent='Lendo arquivo...';try{const n=await processSourceOcr(d,false);const first=state.docs.find(x=>(x.sourceId||x.id)===(d.sourceId||d.id));if(first)state.selectedDoc=first.id;$('ocrStatus').textContent=n?n+' pagamento(s) identificado(s) neste arquivo.':'OCR concluído; revise manualmente.';render();await fillDoc()}catch(e){$('ocrStatus').textContent='Falha no OCR. Revise manualmente.'}finally{$('ocrBtn').disabled=false}};
+$('ocrBtn').onclick=async()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um arquivo/pagamento.');$('ocrBtn').disabled=true;$('ocrStatus').textContent='Lendo arquivo...';try{const n=await processSourceOcr(d,false);const first=state.docs.find(x=>(x.sourceId||x.id)===(d.sourceId||d.id));if(first)state.selectedDoc=first.id;$('ocrStatus').textContent=n?n+' pagamento(s) identificado(s) neste arquivo.':'OCR concluído; revise manualmente.';render();await fillDoc()}catch(e){$('ocrStatus').textContent='Falha no OCR. Revise manualmente.';alert(String(e?.message||e))}finally{$('ocrBtn').disabled=false}};
 $('batchOcrBtn').onclick=async()=>{const candidates=state.docs.filter(d=>d.date&&d.date.startsWith(selectedMonth())&&d.kind!=='pdf'&&!d.itemNo&&(!d.ocrDone||!d.value)),sources=[];const seen=new Set();for(const d of candidates){const s=d.sourceId||d.id;if(!seen.has(s)){seen.add(s);sources.push(d)}}if(!sources.length)return alert('Não há imagens pendentes de leitura em '+selectedMonth()+'. Os filtros de grupo não limitam esta operação.');$('batchOcrBtn').disabled=true;let files=0,pays=0,errors=0,withoutPayments=0;try{for(const d of sources){$('batchOcrBtn').textContent='Lendo '+(files+1)+'/'+sources.length;try{const n=await processSourceOcr(d,true);pays+=n;if(!n)withoutPayments++}catch(e){errors++;d.ocrIssue='Erro de leitura: '+String(e.message||e)}files++;render()}alert('Mês '+selectedMonth()+': '+files+' imagem(ns) verificadas, '+pays+' pagamento(s) identificado(s), '+errors+' falha(s), '+withoutPayments+' sem pagamentos identificados. Os filtros de grupo não impedem a leitura. Consulte os arquivos pendentes para revisão.')}finally{$('batchOcrBtn').disabled=false;$('batchOcrBtn').textContent='Ler imagens do mês';render()}};
 
 $('saveDocEdit').onclick=()=>{const d=state.docs.find(x=>x.id===state.selectedDoc);if(!d)return alert('Selecione um espelho.');const oldGroup=d.group;d.groupDetection='manual';d.group=$('editGroup').value||'SEM GRUPO';d.benef=$('editBenef').value.trim();d.value=$('editValue').value?Number($('editValue').value):null;d.date=$('editDate').value;d.obs=$('editObs').value.trim();if(d.sourceId&&oldGroup!==d.group){state.docs.filter(x=>x.sourceId===d.sourceId).forEach(x=>x.group=d.group)}save();render();fillDoc()};
